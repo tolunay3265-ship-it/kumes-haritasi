@@ -97,7 +97,7 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611221755"></script>
+<script src="gshim.js?v=202611221800"></script>
 <script>
 function APP() {
 const KEY = 'kumes-harita-v1';
@@ -162,7 +162,7 @@ map.on('zoomend', drawPins);
 
 /* ---------- Mod ---------- */
 let mode = 'pan';
-const HINTS = { route: 'Gideceğin yere dokun ya da bir kümese bas. Yol üstündeki kümesler durak olarak listelenir.', draw: (matchMedia('(pointer:fine)').matches ? 'Sol tık basılı: yeşil çiz · Sağ tık basılı: haritayı kaydır · Tekerlek: yakınlaştır · Çift tık: kümes ekle' : 'Tek parmakla taradığın yerin etrafını çiz, içi yeşile boyanır. İki parmakla haritayı kaydır ve yakınlaştır.'), pin: 'Kümesin üstüne dokun.', circle: 'Merkeze dokun ya da bir kümese dokun.' };
+const HINTS = { route: 'Gideceğin yere dokun ya da bir kümese bas. Yol üstündeki kümesler durak olarak listelenir.', draw: (matchMedia('(pointer:fine)').matches ? 'Sol tık basılı: yeşil çiz · Sağ tık basılı: haritayı kaydır · Tekerlek: yakınlaştır · Çift tık: kümes ekle' : 'Tek parmakla çiz, içi yeşile boyanır. İki parmakla kaydır/yakınlaştır. İpucu: Gez’deyken soldaki düğmeyi basılı tutarsan, tuttuğun sürece çizersin.'), pin: 'Kümesin üstüne dokun.', circle: 'Merkeze dokun ya da bir kümese dokun.' };
 function setMode(m) {
   mode = m; document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m));
   document.body.classList.toggle('drawing', m === 'draw');
@@ -170,27 +170,36 @@ function setMode(m) {
   const tg0 = $('tog'); if (tg0) { tg0.classList.toggle('on', m === 'draw'); $('togi').textContent = m === 'draw' ? '✋' : '✏️'; $('togt').textContent = m === 'draw' ? 'Gez' : 'Çiz'; }
   const h = $('hint'); h.textContent = HINTS[m] || ''; h.style.display = HINTS[m] ? 'block' : 'none';
 }
-// Gez/Çiz düğmesi: dokun = geçiş; basılı tut = sürükleyip istediğin yere koy (yeri hatırlanır)
+// Gez/Çiz düğmesi: kısa dokun = geçiş · basılı tut = tutarken çiz (bırakınca Gez'e döner) · basıp hemen sürükle = yerini değiştir
 (() => {
-  const t = $('tog'); let hold = null, drag = false, st = null;
+  const t = $('tog'); let st = null, hold = null, held = false, drag = false, prev = 'pan';
   const place = () => { if (!S.togPos) return; const w = innerWidth, h = innerHeight; t.style.left = Math.min(w - 68, Math.max(4, S.togPos.x * w)) + 'px'; t.style.top = Math.min(h - 68, Math.max(4, S.togPos.y * h)) + 'px'; t.style.bottom = 'auto'; };
   place(); addEventListener('resize', place);
   t.style.touchAction = 'none';
-  t.addEventListener('pointerdown', ev => { ev.preventDefault(); st = { x: ev.clientX, y: ev.clientY, r: t.getBoundingClientRect() }; drag = false; try { t.setPointerCapture(ev.pointerId); } catch (e) {}
-    hold = setTimeout(() => { drag = true; hold = null; t.style.transform = 'scale(1.15)'; t.style.opacity = '.85'; try { navigator.vibrate && navigator.vibrate(15); } catch (e) {} }, 350); });
-  t.addEventListener('pointermove', ev => { if (!st) return; const dx = ev.clientX - st.x, dy = ev.clientY - st.y;
-    if (!drag) { if (Math.hypot(dx, dy) > 12 && hold) { clearTimeout(hold); hold = null; drag = true; t.style.transform = 'scale(1.15)'; t.style.opacity = '.85'; } else return; }
-    t.style.left = Math.min(innerWidth - 68, Math.max(4, st.r.left + dx)) + 'px'; t.style.top = Math.min(innerHeight - 68, Math.max(4, st.r.top + dy)) + 'px'; t.style.bottom = 'auto'; });
-  const up = () => { if (!st) return; if (hold) { clearTimeout(hold); hold = null; }
-    if (drag) { t.style.transform = ''; t.style.opacity = ''; S.togPos = { x: parseFloat(t.style.left) / innerWidth, y: parseFloat(t.style.top) / innerHeight }; save(); }
+  t.addEventListener('contextmenu', ev => ev.preventDefault());
+  t.addEventListener('pointerdown', ev => {
+    ev.preventDefault(); st = { x: ev.clientX, y: ev.clientY, r: t.getBoundingClientRect(), id: ev.pointerId }; drag = false; held = false; try { t.setPointerCapture(ev.pointerId); } catch (e) {}
+    hold = setTimeout(() => { hold = null; if (drag) return; held = true; prev = mode; if (mode !== 'draw') setMode('draw'); t.style.transform = 'scale(1.12)'; try { navigator.vibrate && navigator.vibrate(12); } catch (e) {} }, 260);
+  });
+  t.addEventListener('pointermove', ev => {
+    if (!st || ev.pointerId !== st.id || held) return; const dx = ev.clientX - st.x, dy = ev.clientY - st.y;
+    if (!drag) { if (!hold || Math.hypot(dx, dy) < 12) return; clearTimeout(hold); hold = null; drag = true; t.style.opacity = '.8'; }
+    t.style.left = Math.min(innerWidth - 68, Math.max(4, st.r.left + dx)) + 'px'; t.style.top = Math.min(innerHeight - 68, Math.max(4, st.r.top + dy)) + 'px'; t.style.bottom = 'auto';
+  });
+  const up = ev => {
+    if (!st || ev.pointerId !== st.id) return; if (hold) { clearTimeout(hold); hold = null; }
+    t.style.transform = ''; t.style.opacity = '';
+    if (drag) { S.togPos = { x: parseFloat(t.style.left) / innerWidth, y: parseFloat(t.style.top) / innerHeight }; save(); }
+    else if (held) { if (prev !== 'draw') setMode(prev); }
     else setMode(mode === 'draw' ? 'pan' : 'draw');
-    st = null; drag = false; };
-  t.addEventListener('pointerup', up); t.addEventListener('pointercancel', () => { if (hold) clearTimeout(hold); hold = null; st = null; drag = false; t.style.transform = ''; t.style.opacity = ''; });
+    st = null; drag = false; held = false;
+  };
+  t.addEventListener('pointerup', up); t.addEventListener('pointercancel', up);
 })();
 document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode === mode && mode !== 'pan' ? 'pan' : b.dataset.mode));
 
 /* ---------- Kalemle tarama ---------- */
-let path = null, tmp = null;
+let path = null, tmp = null, drawId = null;
 const mapEl = $('map');
 function ptLL(ev) { const r = mapEl.getBoundingClientRect(); return map.containerPointToLatLng([ev.clientX - r.left, ev.clientY - r.top]); }
 let rpan = null;
@@ -217,14 +226,14 @@ let wheelT = 0;
 mapEl.addEventListener('wheel', ev => { if (mode !== 'draw' || !window.GOOG) return; ev.preventDefault(); ev.stopPropagation(); const n = Date.now(); if (n - wheelT < 180) return; wheelT = n; map.setZoom(Math.max(3, Math.min(20, map.getZoom() + (ev.deltaY < 0 ? 1 : -1)))); }, { passive: false, capture: true });
 mapEl.addEventListener('pointerdown', ev => {
   if (ev.pointerType === 'mouse' && ev.button === 2) { ev.preventDefault(); rpan = { x: ev.clientX, y: ev.clientY }; try { mapEl.setPointerCapture(ev.pointerId); } catch (e) {} return; }
-  if (mode !== 'draw' || !ev.isPrimary || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
-  ev.preventDefault(); path = [ptLL(ev)]; tmp = L.polyline(path, { color: '#2fd36b', weight: 4, dashArray: '6 6' }).addTo(map);
+  if (mode !== 'draw' || path || (ev.pointerType === 'mouse' ? ev.button !== 0 : ev.pointerType === 'touch' ? touches.size > 1 : !ev.isPrimary)) return;
+  ev.preventDefault(); drawId = ev.pointerId; path = [ptLL(ev)]; tmp = L.polyline(path, { color: '#2fd36b', weight: 4, dashArray: '6 6' }).addTo(map);
   try { mapEl.setPointerCapture(ev.pointerId); } catch (e) {}
 }, { passive: false, capture: true });
-mapEl.addEventListener('pointermove', ev => { if (rpan) { map.panBy([rpan.x - ev.clientX, rpan.y - ev.clientY], { animate: false }); rpan = { x: ev.clientX, y: ev.clientY }; return; } if (!path) return; ev.preventDefault(); const ll = ptLL(ev); const last = path[path.length - 1]; if (map.latLngToContainerPoint(last).distanceTo(map.latLngToContainerPoint(ll)) < 4) return; path.push(ll); tmp.setLatLngs(path); }, { passive: false, capture: true });
+mapEl.addEventListener('pointermove', ev => { if (rpan) { map.panBy([rpan.x - ev.clientX, rpan.y - ev.clientY], { animate: false }); rpan = { x: ev.clientX, y: ev.clientY }; return; } if (!path || ev.pointerId !== drawId) return; ev.preventDefault(); const ll = ptLL(ev); const last = path[path.length - 1]; if (map.latLngToContainerPoint(last).distanceTo(map.latLngToContainerPoint(ll)) < 4) return; path.push(ll); tmp.setLatLngs(path); }, { passive: false, capture: true });
 const endDraw = ev => {
   if (rpan) { rpan = null; return; }
-  if (!path) return; const pts = path; path = null; map.removeLayer(tmp); tmp = null;
+  if (!path || (ev && ev.pointerId !== drawId)) return; const pts = path; path = null; map.removeLayer(tmp); tmp = null;
   if (pts.length < 6) return;
   const ring = pts.map(p => [p.lng, p.lat]); ring.push(ring[0]);
   let poly; try { poly = turf.polygon([ring]); poly = turf.simplify(poly, { tolerance: 0.00002, highQuality: false }); const k = turf.unkinkPolygon(poly); poly = k.features.length > 1 ? k.features.reduce((a, b) => { try { return turf.union(a, b) || a; } catch (e) { return a; } }) : k.features[0]; } catch (e) { return; }
@@ -639,7 +648,7 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length) setTimeout(help, 600);
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
-const APP_VER = '202611221755';
+const APP_VER = '202611221800';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) location.replace(location.pathname + '?v=' + t + location.hash); }).catch(() => {}); }
 checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
