@@ -115,6 +115,7 @@ function installShim() {
     setView(c, z) { this.g.setCenter(gl(c)); if (z != null) this.g.setZoom(z); return this; }
     getCenter() { return toLL(this.g.getCenter()); }
     getZoom() { return this.g.getZoom(); }
+    setZoom(z) { this.g.setZoom(z); return this; }
     getBounds() { const b = this.g.getBounds(); if (!b) return new Bounds([0, 0], [0, 0]); return new Bounds(toLL(b.getSouthWest()), toLL(b.getNorthEast())); }
     fitBounds(b) { this.g.fitBounds(b.g(), 20); }
     panBy(d) { this.g.panBy(d[0], d[1]); }

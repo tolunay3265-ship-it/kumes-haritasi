@@ -160,7 +160,7 @@ map.on('zoomend', drawPins);
 
 /* ---------- Mod ---------- */
 let mode = 'pan';
-const HINTS = { route: 'Gideceğin yere dokun ya da bir kümese bas. Yol üstündeki kümesler durak olarak listelenir.', draw: (matchMedia('(pointer:fine)').matches ? 'Sol tık basılı: yeşil çiz · Sağ tık basılı: haritayı kaydır · Tekerlek: yakınlaştır · Çift tık: kümes ekle' : 'Parmağınla taradığın yerin etrafını çiz. Bitince parmağını kaldır, içi yeşile boyanır. Üst üste gelen çizimler birleşir.'), pin: 'Kümesin üstüne dokun.', circle: 'Merkeze dokun ya da bir kümese dokun.' };
+const HINTS = { route: 'Gideceğin yere dokun ya da bir kümese bas. Yol üstündeki kümesler durak olarak listelenir.', draw: (matchMedia('(pointer:fine)').matches ? 'Sol tık basılı: yeşil çiz · Sağ tık basılı: haritayı kaydır · Tekerlek: yakınlaştır · Çift tık: kümes ekle' : 'Tek parmakla taradığın yerin etrafını çiz, içi yeşile boyanır. İki parmakla haritayı kaydır ve yakınlaştır.'), pin: 'Kümesin üstüne dokun.', circle: 'Merkeze dokun ya da bir kümese dokun.' };
 function setMode(m) {
   mode = m; document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m));
   document.body.classList.toggle('drawing', m === 'draw');
@@ -175,6 +175,26 @@ const mapEl = $('map');
 function ptLL(ev) { const r = mapEl.getBoundingClientRect(); return map.containerPointToLatLng([ev.clientX - r.left, ev.clientY - r.top]); }
 let rpan = null;
 mapEl.addEventListener('contextmenu', ev => ev.preventDefault(), true);
+// Tara modunda: tek parmak çizer, iki parmak haritayı kaydırır ve yakınlaştırır
+const touches = new Map(); let tg = null, touchLock = false;
+const tMid = () => { const a = [...touches.values()]; return { x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2, d: Math.max(10, Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y)) }; };
+mapEl.addEventListener('pointerdown', ev => {
+  if (mode !== 'draw' || ev.pointerType !== 'touch') return;
+  touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (touches.size >= 2) { ev.preventDefault(); ev.stopImmediatePropagation(); if (path) { path = null; if (tmp) map.removeLayer(tmp); tmp = null; } touchLock = true; const m = tMid(); tg = { x: m.x, y: m.y, d: m.d, z: map.getZoom() }; }
+  else if (touchLock) ev.stopImmediatePropagation();
+}, { passive: false, capture: true });
+mapEl.addEventListener('pointermove', ev => {
+  if (!touches.has(ev.pointerId)) return; touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (touches.size >= 2 && tg) { ev.preventDefault(); ev.stopImmediatePropagation(); const m = tMid(); map.panBy([tg.x - m.x, tg.y - m.y], { animate: false }); tg.x = m.x; tg.y = m.y; const z = Math.max(3, Math.min(20, Math.round(tg.z + Math.log2(m.d / tg.d)))); if (z !== map.getZoom()) map.setZoom(z, { animate: false }); }
+  else if (touchLock) ev.stopImmediatePropagation();
+}, { passive: false, capture: true });
+const tEnd = ev => { if (!touches.has(ev.pointerId)) return; touches.delete(ev.pointerId); if (touches.size < 2) tg = null; if (touchLock) { ev.stopImmediatePropagation(); if (!touches.size) touchLock = false; } };
+mapEl.addEventListener('pointerup', tEnd, true); mapEl.addEventListener('pointercancel', tEnd, true);
+mapEl.addEventListener('touchmove', ev => { if (mode === 'draw') ev.preventDefault(); }, { passive: false, capture: true });
+document.addEventListener('gesturestart', ev => { if (mode === 'draw') ev.preventDefault(); });
+let wheelT = 0;
+mapEl.addEventListener('wheel', ev => { if (mode !== 'draw' || !window.GOOG) return; ev.preventDefault(); ev.stopPropagation(); const n = Date.now(); if (n - wheelT < 180) return; wheelT = n; map.setZoom(Math.max(3, Math.min(20, map.getZoom() + (ev.deltaY < 0 ? 1 : -1)))); }, { passive: false, capture: true });
 mapEl.addEventListener('pointerdown', ev => {
   if (ev.pointerType === 'mouse' && ev.button === 2) { ev.preventDefault(); rpan = { x: ev.clientX, y: ev.clientY }; try { mapEl.setPointerCapture(ev.pointerId); } catch (e) {} return; }
   if (mode !== 'draw' || !ev.isPrimary || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
