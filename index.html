@@ -97,7 +97,7 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611221751"></script>
+<script src="gshim.js?v=202611221755"></script>
 <script>
 function APP() {
 const KEY = 'kumes-harita-v1';
@@ -170,7 +170,23 @@ function setMode(m) {
   const tg0 = $('tog'); if (tg0) { tg0.classList.toggle('on', m === 'draw'); $('togi').textContent = m === 'draw' ? '✋' : '✏️'; $('togt').textContent = m === 'draw' ? 'Gez' : 'Çiz'; }
   const h = $('hint'); h.textContent = HINTS[m] || ''; h.style.display = HINTS[m] ? 'block' : 'none';
 }
-$('tog').onclick = () => setMode(mode === 'draw' ? 'pan' : 'draw');
+// Gez/Çiz düğmesi: dokun = geçiş; basılı tut = sürükleyip istediğin yere koy (yeri hatırlanır)
+(() => {
+  const t = $('tog'); let hold = null, drag = false, st = null;
+  const place = () => { if (!S.togPos) return; const w = innerWidth, h = innerHeight; t.style.left = Math.min(w - 68, Math.max(4, S.togPos.x * w)) + 'px'; t.style.top = Math.min(h - 68, Math.max(4, S.togPos.y * h)) + 'px'; t.style.bottom = 'auto'; };
+  place(); addEventListener('resize', place);
+  t.style.touchAction = 'none';
+  t.addEventListener('pointerdown', ev => { ev.preventDefault(); st = { x: ev.clientX, y: ev.clientY, r: t.getBoundingClientRect() }; drag = false; try { t.setPointerCapture(ev.pointerId); } catch (e) {}
+    hold = setTimeout(() => { drag = true; hold = null; t.style.transform = 'scale(1.15)'; t.style.opacity = '.85'; try { navigator.vibrate && navigator.vibrate(15); } catch (e) {} }, 350); });
+  t.addEventListener('pointermove', ev => { if (!st) return; const dx = ev.clientX - st.x, dy = ev.clientY - st.y;
+    if (!drag) { if (Math.hypot(dx, dy) > 12 && hold) { clearTimeout(hold); hold = null; drag = true; t.style.transform = 'scale(1.15)'; t.style.opacity = '.85'; } else return; }
+    t.style.left = Math.min(innerWidth - 68, Math.max(4, st.r.left + dx)) + 'px'; t.style.top = Math.min(innerHeight - 68, Math.max(4, st.r.top + dy)) + 'px'; t.style.bottom = 'auto'; });
+  const up = () => { if (!st) return; if (hold) { clearTimeout(hold); hold = null; }
+    if (drag) { t.style.transform = ''; t.style.opacity = ''; S.togPos = { x: parseFloat(t.style.left) / innerWidth, y: parseFloat(t.style.top) / innerHeight }; save(); }
+    else setMode(mode === 'draw' ? 'pan' : 'draw');
+    st = null; drag = false; };
+  t.addEventListener('pointerup', up); t.addEventListener('pointercancel', () => { if (hold) clearTimeout(hold); hold = null; st = null; drag = false; t.style.transform = ''; t.style.opacity = ''; });
+})();
 document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode === mode && mode !== 'pan' ? 'pan' : b.dataset.mode));
 
 /* ---------- Kalemle tarama ---------- */
@@ -623,7 +639,7 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length) setTimeout(help, 600);
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
-const APP_VER = '202611221751';
+const APP_VER = '202611221755';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) location.replace(location.pathname + '?v=' + t + location.hash); }).catch(() => {}); }
 checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
