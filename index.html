@@ -219,7 +219,7 @@ function onClick(e) {
 function custSearch(qs, limit) { const q = norm(qs).trim(); if (!q) return []; return S.cust.filter(c => norm(c.n + ' ' + (c.k || '') + ' ' + (c.c || '')).includes(q)).slice(0, limit || 30); }
 function pinForm(p, isNew) {
   let lead = p.lead, st = p.st || '';
-  if (!p.k && !p.c) placeOf(p.lat, p.lng).then(y => { if (y) { p.k = y.k; p.c = y.c; p.il = y.il; const el = $('pyer'); if (el) el.textContent = yerTxt(p) || '—'; if (!isNew && S.pins.includes(p)) { save(); drawPins(); } } });
+  if (!p.k && !p.c) placeOf(p.lat, p.lng).then(y => { if (y) { p.k = y.k; p.c = y.c; p.il = y.il; p.kv = 2; const el = $('pyer'); if (el) el.textContent = yerTxt(p) || '—'; if (!isNew && S.pins.includes(p)) { save(); drawPins(); } } });
   const draw = () => {
     const c = lead && custById(lead);
     open('<div class="ph"><h3>' + (isNew ? 'Kümes ekle' : 'Kümesi düzenle') + '</h3><button class="x" data-close>✕</button></div>' +
@@ -275,9 +275,30 @@ function pinCard(p) {
 }
 
 function navBtns(lat, lng) { return '<div class="lbl">Yol tarifi</div><div class="row"><a class="btn pri" href="https://maps.apple.com/?dirflg=d&daddr=' + lat + ',' + lng + '" target="_blank" rel="noopener">🧭 Apple Haritalar</a><a class="btn pri" href="https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=' + lat + ',' + lng + '" target="_blank" rel="noopener">🧭 Google Maps</a></div>'; }
+// Köy = kümese EN YAKIN yerleşim (köy merkezi). İlçe/şehir merkezine yakınsa "Merkez".
+async function nearestKoy(lat, lng) {
+  const q = '[out:json][timeout:20];node(around:8000,' + lat + ',' + lng + ')[place~"^(village|town|city|suburb|neighbourhood|quarter)$"];out body;';
+  const j = await (await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(q) })).json();
+  const P = (j.elements || []).filter(e => e.tags && (e.tags['name:tr'] || e.tags.name)).map(e => ({ n: e.tags['name:tr'] || e.tags.name, t: e.tags.place, d: kmBetween([lat, lng], [e.lat, e.lon]), lat: e.lat, lng: e.lon }));
+  if (!P.length) return null;
+  const towns = P.filter(x => x.t === 'town' || x.t === 'city');
+  P.sort((a, b) => a.d - b.d); const b = P[0];
+  if (b.t === 'town' || b.t === 'city') return 'Merkez';
+  if (b.t !== 'village' && towns.some(t => kmBetween([b.lat, b.lng], [t.lat, t.lng]) < 4)) return 'Merkez';
+  return b.n.replace(/\s+(Mahallesi|Köyü)$/i, '');
+}
 async function placeOf(lat, lng) {
+  let r = null;
   try { const x = await (await fetch('https://nominatim.openstreetmap.org/reverse?format=json&zoom=14&accept-language=tr&lat=' + lat + '&lon=' + lng)).json(); const a = x.address || {};
-    return { k: a.village || a.hamlet || a.neighbourhood || a.suburb || a.quarter || '', c: a.town || a.county || a.city_district || '', il: a.province || a.state || '' }; } catch (e) { return null; }
+    r = { k: (a.village || a.hamlet || a.neighbourhood || a.suburb || a.quarter || '').replace(/\s+(Mahallesi|Köyü)$/i, ''), c: a.town || a.county || a.city_district || '', il: a.province || a.state || '' }; } catch (e) {}
+  try { const k = await nearestKoy(lat, lng); if (k) { r = r || { c: '', il: '' }; r.k = k; } } catch (e) {}
+  if (r) r.kv = 2; return r;
+}
+// Eski işaretlerin köyünü bir kere "en yakın köy" kuralıyla yeniden bul
+async function fixOldKoy() {
+  const L2 = S.pins.filter(p => !p.lead && p.kv !== 2); let ch = 0;
+  for (const p of L2) { const y = await placeOf(p.lat, p.lng); if (!y) continue; if (y.k && y.k !== p.k) ch++; Object.assign(p, { k: y.k || p.k, c: y.c || p.c, il: y.il || p.il, kv: 2 }); await new Promise(r => setTimeout(r, 1100)); }
+  if (L2.length) { if (ch) S.chg = (S.chg || 0) + ch; save(); drawPins(); if (ch) toast(ch + ' kümesin köyü en yakın köye göre düzeltildi · Aktar’a bas'); }
 }
 /* Gez modunda boş bir yere dokununca: o noktaya iğne, yol tarifi, kümes ekle */
 let dropM = null;
@@ -443,6 +464,7 @@ function fromHash() {
 window.addEventListener('hashchange', fromHash);
 
 drawAreas(); drawPins(); fromHash(); sendBadge();
+setTimeout(fixOldKoy, 2500);
 if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' değişiklik var · sarı Aktar düğmesine bas'), 900);
 if (!S.cust.length && !S.pins.length) setTimeout(help, 600);
 }
