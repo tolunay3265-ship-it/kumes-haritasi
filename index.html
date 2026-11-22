@@ -579,11 +579,12 @@ if (!S.cust.length && !S.pins.length) setTimeout(help, 600);
 const GKEY_DEFAULT = 'AIzaSyCE3zuULF8IlW7TOx-aB9wNoN5xwCLyKQE';
 (function boot() {
   let k = GKEY_DEFAULT; try { const it = localStorage.getItem('kh-gkey'); if (it !== null) k = it; } catch (e) {}
+  try { if (sessionStorage.getItem('kh-gfail')) { k = ''; window.GOOG_ERR = 'Google haritası açılamadı (anahtar henüz hazır değil), eski harita açıldı'; } } catch (e) {}
   window.GOOG = false;
   if (!k) { APP(); return; }
   let started = false; const go = goog => { if (started) return; started = true; window.GOOG = goog; if (goog) installShim(); APP(); };
   window.gmReady = () => go(true);
-  window.gm_authFailure = () => { try { localStorage.removeItem('kh-gkey'); } catch (e) {} if (!sessionStorage.getItem('kh-gfail')) { sessionStorage.setItem('kh-gfail', '1'); alert('Google harita anahtarı çalışmadı. Eski haritaya dönülüyor. Menü → 🔑 Google anahtarı ile tekrar deneyebilirsin.'); location.reload(); } };
+  window.gm_authFailure = () => { try { sessionStorage.setItem('kh-gfail', '1'); } catch (e) {} location.reload(); };
   const sc = document.createElement('script'); sc.async = true;
   sc.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(k) + '&callback=gmReady&language=tr&region=TR&v=weekly&loading=async';
   sc.onerror = () => { window.GOOG_ERR = 'Google haritası yüklenemedi, eski harita açıldı'; go(false); };
