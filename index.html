@@ -111,6 +111,7 @@ let S = { v: 1, areas: [], pins: [], cust: [], view: null, layer: 'satlbl', upd:
 try { const r = JSON.parse(localStorage.getItem(KEY) || 'null'); if (r && r.v) S = Object.assign(S, r); } catch (e) {}
 if (!S.lv2) { S.layer = 'satlbl'; S.lv2 = 1; }
 const hist = [];
+const markDel = id => { if (!id) return; S.del = (S.del || []).concat(id).slice(-500); };
 function save(snap) { S.upd = Date.now(); sendBadge(); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Kaydedilemedi: telefonda yer yok'); } }
 function snapshot() { S.chg = (S.chg || 0) + 1; hist.push(JSON.stringify({ areas: S.areas, pins: S.pins })); if (hist.length > 40) hist.shift(); $('undo').disabled = false; }
 try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
@@ -207,7 +208,7 @@ function addArea(poly) {
   let merged = { type: 'Feature', properties: {}, geometry: poly.geometry }; let rest = S.areas.slice(); const notes = [];
   for (let loop = 0, ch = true; ch && loop < 6; loop++) {
     ch = false; const keep = [];
-    rest.forEach(a => { let hit = false; try { hit = turf.booleanIntersects(a, merged); } catch (e) {} if (hit) { try { const u = turf.union(a, merged); if (u) { merged = u; ch = true; if (a.properties && a.properties.note) notes.push(a.properties.note); return; } } catch (e) {} } keep.push(a); });
+    rest.forEach(a => { let hit = false; try { hit = turf.booleanIntersects(a, merged); } catch (e) {} if (hit) { try { const u = turf.union(a, merged); if (u) { merged = u; ch = true; markDel(a.properties && a.properties.id); if (a.properties && a.properties.note) notes.push(a.properties.note); return; } } catch (e) {} } keep.push(a); });
     rest = keep; try { const fh = fillHoles(merged); if (JSON.stringify(fh.geometry) !== JSON.stringify(merged.geometry)) ch = true; merged = fh; } catch (e) {}
   }
   merged.properties = { id: uid(), t: Date.now(), note: [...new Set(notes)].join(' · ') };
@@ -221,7 +222,7 @@ function areaCard(f) {
     '<div class="lbl">Not</div><input class="field" id="an" value="' + esc(f.properties && f.properties.note) + '" placeholder="Örn: 1. hafta, Seydiköy güneyi">' +
     '<div class="row"><button class="btn dan" id="adel">Alanı sil</button><button class="btn pri" id="aok">Kaydet</button></div>');
   $('aok').onclick = () => { S.chg = (S.chg || 0) + 1; f.properties = Object.assign({}, f.properties, { note: $('an').value.trim() }); save(); close(); toast('Kaydedildi'); };
-  $('adel').onclick = () => { snapshot(); S.areas = S.areas.filter(a => a !== f && !(a.properties && f.properties && a.properties.id && a.properties.id === f.properties.id)); save(); drawAreas(); close(); toast('Alan silindi · Geri al ile geri getirebilirsin'); };
+  $('adel').onclick = () => { snapshot(); markDel(f.properties && f.properties.id); S.areas = S.areas.filter(a => a !== f && !(a.properties && f.properties && a.properties.id && a.properties.id === f.properties.id)); save(); drawAreas(); close(); toast('Alan silindi · Geri al ile geri getirebilirsin'); };
 }
 
 /* ---------- Kümes işaretleri ---------- */
@@ -258,7 +259,7 @@ function pinForm(p, isNew) {
       const cq = $('cq'), cl = $('cl'); const ren = () => { cl.innerHTML = custSearch(cq.value, 12).map(x => '<button class="item" data-c="' + esc(x.i) + '"><div class="g"><b>' + esc(x.n) + '</b><small>' + esc([x.k, x.c, x.m ? x.m + ' m²' : ''].filter(Boolean).join(' · ')) + '</small></div>' + (S.pins.some(z => z.lead === x.i) ? '<small>📍 zaten var</small>' : '') + '</button>').join(''); cl.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { keep(); lead = b.dataset.c; draw(); }); };
       cq.oninput = ren;
     }
-    if (!isNew) $('pdel').onclick = () => { snapshot(); S.pins = S.pins.filter(z => z.id !== p.id); save(); drawPins(); close(); toast('Silindi · Geri al ile geri getirebilirsin'); };
+    if (!isNew) $('pdel').onclick = () => { snapshot(); markDel(p.id); S.pins = S.pins.filter(z => z.id !== p.id); save(); drawPins(); close(); toast('Silindi · Geri al ile geri getirebilirsin'); };
     $('pok').onclick = () => {
       snapshot();
       p.lead = lead || null; p.name = p.lead ? '' : (($('pn') && $('pn').value.trim()) || ''); p.cnt = $('pc').value.trim(); p.note = $('pt').value.trim(); p.st = st; if (!p.st) delete p.st;
@@ -514,7 +515,7 @@ $('menu').onclick = () => {
   $('m-key').onclick = () => { let cur = ''; try { cur = localStorage.getItem('kh-gkey') || ''; } catch (e) {}
     open('<div class="ph"><h3>🔑 Google harita anahtarı</h3><button class="x" data-close>✕</button></div><div class="muted">Google Cloud’dan aldığın AIza… ile başlayan anahtarı yapıştır. Boş bırakıp kaydedersen eski haritaya döner.</div><input class="field" id="gk" value="' + esc(cur) + '" placeholder="AIza…" autocomplete="off"><button class="btn pri full" id="gkok">Kaydet ve yeniden aç</button>');
     $('gkok').onclick = () => { const v = $('gk').value.trim(); try { if (v) localStorage.setItem('kh-gkey', v); else localStorage.setItem('kh-gkey', ''); sessionStorage.removeItem('kh-gfail'); } catch (e) {} location.reload(); }; };
-  $('m-wipe').onclick = () => { if (!S.areas.length) return; snapshot(); S.areas = []; save(); drawAreas(); close(); toast('Silindi · Geri al ile geri getirebilirsin'); };
+  $('m-wipe').onclick = () => { if (!S.areas.length) return; snapshot(); S.areas.forEach(a => markDel(a.properties && a.properties.id)); S.areas = []; save(); drawAreas(); close(); toast('Silindi · Geri al ile geri getirebilirsin'); };
 };
 function pasteIn() {
   open('<div class="ph"><h3>Görev Matrisi’nden al</h3><button class="x" data-close>✕</button></div>' +
@@ -527,11 +528,12 @@ function pasteIn() {
     S.cust = o.cust; let added = 0, restored = false;
     // Başka cihazda yapılanları birleştir: eksik işaretler eklenir, aynı işaretin yenisi kalır; yeşil alanlar üst üste birleşir
     if (o.full) {
+      const dl = new Set(o.full.del || []); if (dl.size) { S.pins = S.pins.filter(p => !dl.has(p.id)); S.areas = S.areas.filter(a => !dl.has(a.properties && a.properties.id)); S.del = [...new Set((S.del || []).concat([...dl]))].slice(-500); }
       const ownP = {}; S.pins.forEach(p => ownP[p.id] = p);
-      (o.full.pins || []).forEach(p => { const m = ownP[p.id]; if (!m) { S.pins.push(p); restored = true; } else if ((p.upd || p.t || 0) > (m.upd || m.t || 0)) { Object.assign(m, p); restored = true; } });
+      (o.full.pins || []).forEach(p => { if (dl.has(p.id)) return; const m = ownP[p.id]; if (!m) { S.pins.push(p); restored = true; } else if ((p.upd || p.t || 0) > (m.upd || m.t || 0)) { Object.assign(m, p); restored = true; } });
       const ownA = new Set(S.areas.map(a => a.properties && a.properties.id).filter(Boolean)), key = a => JSON.stringify(a.geometry);
       const ownG = new Set(S.areas.map(key));
-      (o.full.areas || []).forEach(a => { if ((a.properties && ownA.has(a.properties.id)) || ownG.has(key(a))) return; try { const t = a.properties && a.properties.t, n = a.properties && a.properties.note; addArea({ geometry: a.geometry }); const last = S.areas[S.areas.length - 1]; if (t) last.properties.t = Math.min(last.properties.t, t); if (n && !last.properties.note) last.properties.note = n; restored = true; } catch (e) {} });
+      (o.full.areas || []).forEach(a => { if ((a.properties && dl.has(a.properties.id)) || (a.properties && ownA.has(a.properties.id)) || ownG.has(key(a))) return; try { const t = a.properties && a.properties.t, n = a.properties && a.properties.note; addArea({ geometry: a.geometry }); markDel(a.properties && a.properties.id); const last = S.areas[S.areas.length - 1]; if (t) last.properties.t = Math.min(last.properties.t, t); if (n && !last.properties.note) last.properties.note = n; restored = true; } catch (e) {} });
     }
     let linked = 0;
     S.cust.forEach(c => { if (!c.mp) return; const pin = S.pins.find(p => p.id === c.mp); if (pin && !pin.lead && !/^❓ /.test(c.n)) { pin.lead = c.i; linked++; } });
@@ -555,7 +557,7 @@ function help() {
 
 async function sendOut() {
     const rnd = (k, v) => typeof v === 'number' && !Number.isInteger(v) && Math.abs(v) < 200 ? Math.round(v * 1e5) / 1e5 : v;
-    const out = JSON.stringify({ kh: 1, at: Date.now(), geo: S.pins.filter(p => p.lead).map(p => [p.lead, p.lat, p.lng]), full: { areas: S.areas.map(a => { try { return turf.truncate(a, { precision: 5 }); } catch (e) { return a; } }), pins: S.pins.map(p => { const o = Object.assign({}, p); delete o._drag; return o; }) } }, rnd);
+    const out = JSON.stringify({ kh: 1, at: Date.now(), geo: S.pins.filter(p => p.lead).map(p => [p.lead, p.lat, p.lng]), full: { areas: S.areas.map(a => { try { return turf.truncate(a, { precision: 5 }); } catch (e) { return a; } }), pins: S.pins.map(p => { const o = Object.assign({}, p); delete o._drag; return o; }), del: S.del || [] } }, rnd);
     try { await navigator.clipboard.writeText(out); S.chg = 0; save(); close(); open('<div class="ph"><h3>✓ Kopyalandı</h3><button class="x" data-close>✕</button></div><div class="list" style="gap:8px;font-size:15px"><div>1. Görev Matrisi’ni aç</div><div>2. Müşteri → 🛰️ Uydu haritası</div><div>3. “Haritadan al” kutusuna basılı tut → <b>Yapıştır</b></div></div><div class="muted">Yapıştırınca kendiliğinden alır.</div>'); } catch (e) { open('<div class="ph"><h3>Kopyala</h3><button class="x" data-close>✕</button></div><div class="muted">Otomatik kopyalanamadı. Kutuya basılı tut → Tümünü Seç → Kopyala.</div><textarea class="field" style="min-height:200px">' + esc(out) + '</textarea>'); S.chg = 0; save(); }
 }
 function sendBadge() { const n = S.chg || 0, b = $('send'); if (!b) return; b.style.display = n ? 'block' : 'none'; document.body.classList.toggle('has-send', !!n); b.textContent = '⬆️ ' + n + ' değişiklik aktarılmadı · Aktar'; }
