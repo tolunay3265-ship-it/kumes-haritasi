@@ -86,6 +86,7 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
   <button class="tb" data-mode="draw"><b>✏️</b>Tara</button>
   <button class="tb" data-mode="pin"><b>🏠</b>Kümes</button>
   <button class="tb" data-mode="circle"><b>⭕</b>Daire</button>
+  <button class="tb" data-mode="route"><b>🛣️</b>Rota</button>
   <button class="tb" id="undo"><b>↶</b>Geri al</button>
   <button class="tb" id="lay"><b>🗺️</b>Katman</button>
 </div></div>
@@ -146,7 +147,7 @@ function drawPins() {
     const cls = pinCls(p), lbl = pinLabel(p);
     const icon = L.divIcon({ className: '', iconSize: [0, 0], html: '<div class="pin ' + cls + (selPin === p.id ? ' sel' : '') + '"><i>' + (cls === 'q' ? '?' : cls === 'x' ? '✕' : '') + '</i>' + (map.getZoom() >= 14 || selPin === p.id ? '<span>' + esc(lbl) + '</span>' : '') + '</div>' });
     const m = L.marker([p.lat, p.lng], { icon, draggable: !!p._drag, keyboard: false }).addTo(pinLayer);
-    m.on('click', e => { L.DomEvent.stopPropagation(e); if (mode === 'circle') { setCircle([p.lat, p.lng], p); return; } pinCard(p); });
+    m.on('click', e => { L.DomEvent.stopPropagation(e); if (mode === 'circle') { setCircle([p.lat, p.lng], p); return; } if (mode === 'route') { routeTo([p.lat, p.lng], pinLabel(p)); return; } pinCard(p); });
     m.on('dblclick', e => L.DomEvent.stopPropagation(e));
     m.on('dragend', () => { const ll = m.getLatLng(); snapshot(); p.lat = +ll.lat.toFixed(6); p.lng = +ll.lng.toFixed(6); delete p._drag; save(); drawPins(); toast('Yeni yeri kaydedildi'); });
   });
@@ -155,7 +156,7 @@ map.on('zoomend', drawPins);
 
 /* ---------- Mod ---------- */
 let mode = 'pan';
-const HINTS = { draw: (matchMedia('(pointer:fine)').matches ? 'Sol tık basılı: yeşil çiz · Sağ tık basılı: haritayı kaydır · Tekerlek: yakınlaştır · Çift tık: kümes ekle' : 'Parmağınla taradığın yerin etrafını çiz. Bitince parmağını kaldır, içi yeşile boyanır. Üst üste gelen çizimler birleşir.'), pin: 'Kümesin üstüne dokun.', circle: 'Merkeze dokun ya da bir kümese dokun.' };
+const HINTS = { route: 'Gideceğin yere dokun ya da bir kümese bas. Yol üstündeki kümesler durak olarak listelenir.', draw: (matchMedia('(pointer:fine)').matches ? 'Sol tık basılı: yeşil çiz · Sağ tık basılı: haritayı kaydır · Tekerlek: yakınlaştır · Çift tık: kümes ekle' : 'Parmağınla taradığın yerin etrafını çiz. Bitince parmağını kaldır, içi yeşile boyanır. Üst üste gelen çizimler birleşir.'), pin: 'Kümesin üstüne dokun.', circle: 'Merkeze dokun ya da bir kümese dokun.' };
 function setMode(m) {
   mode = m; document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m));
   document.body.classList.toggle('drawing', m === 'draw');
@@ -214,6 +215,7 @@ map.on('click', e => { if (mode === 'draw') return; clearTimeout(clickT); clickT
 function onClick(e) {
   if (mode === 'pin') newPinAt(e.latlng);
   else if (mode === 'circle') setCircle([e.latlng.lat, e.latlng.lng]);
+  else if (mode === 'route') routeTo([e.latlng.lat, e.latlng.lng], 'Seçilen yer');
   else if (mode === 'pan' && !searchJustClosed) dropCard(e.latlng);
 }
 function custSearch(qs, limit) { const q = norm(qs).trim(); if (!q) return []; return S.cust.filter(c => norm(c.n + ' ' + (c.k || '') + ' ' + (c.c || '')).includes(q)).slice(0, limit || 30); }
@@ -266,10 +268,11 @@ function pinCard(p) {
     (p.cnt ? '<div class="kv"><span>Kümes sayısı</span><b>' + esc(p.cnt) + '</b></div>' : '') +
     (p.note ? '<div class="field" style="white-space:pre-wrap">' + esc(p.note) + '</div>' : '') +
     (near.length ? '<div class="lbl">5 km içinde</div><div class="list">' + near.map(n => '<button class="item" data-go="' + n.p.id + '"><div class="g"><b>' + esc(pinLabel(n.p)) + '</b></div><b class="km">' + fmtKm(n.d) + '</b></button>').join('') + '</div>' : '') +
-    navBtns(p.lat, p.lng) + '<button class="btn full" id="pcir">⭕ Çevresi</button>' +
+    navBtns(p.lat, p.lng) + '<div class="row"><button class="btn" id="prt">🛣️ Duraklı rota</button><button class="btn" id="pcir">⭕ Çevresi</button></div>' +
     '<div class="row"><button class="btn" id="pmv">✋ Taşı</button><button class="btn pri" id="ped">✏️ Düzenle</button></div>');
   $('ped').onclick = () => pinForm(p, false);
   $('pmv').onclick = () => { p._drag = true; drawPins(); close(); toast('İşareti tutup yeni yerine sürükle'); };
+  $('prt').onclick = () => { close(); setMode('route'); routeTo([p.lat, p.lng], pinLabel(p)); };
   $('pcir').onclick = () => { close(); setMode('circle'); setCircle([p.lat, p.lng], p); };
   document.querySelectorAll('#panel [data-go]').forEach(b => b.onclick = () => { const z = S.pins.find(x => x.id === b.dataset.go); if (z) { map.setView([z.lat, z.lng], Math.max(map.getZoom(), 16)); pinCard(z); } });
 }
@@ -309,10 +312,51 @@ function dropCard(ll) {
   let km = '';
   if (meMarker) km = '<div class="kv"><span>Bulunduğun yere</span><b>' + fmtKm(kmBetween([meMarker.getLatLng().lat, meMarker.getLatLng().lng], [lat, lng])) + ' (kuş uçuşu)</b></div>';
   open('<div class="ph"><h3>📍 Seçilen yer</h3><button class="x" data-close>✕</button></div><div class="muted" id="dname">Yer adı aranıyor…</div>' + km + navBtns(lat, lng) +
-    '<div class="row"><button class="btn" id="dpin">🏠 Buraya kümes ekle</button><button class="btn" id="dcir">⭕ Çevresi</button></div>');
+    '<div class="row"><button class="btn" id="dpin">🏠 Buraya kümes ekle</button><button class="btn" id="drt">🛣️ Duraklı rota</button><button class="btn" id="dcir">⭕ Çevresi</button></div>');
+  $('drt').onclick = () => { close(); setMode('route'); routeTo([lat, lng], 'Seçilen yer'); };
   $('dpin').onclick = () => newPinAt({ lat, lng });
   $('dcir').onclick = () => { close(); setMode('circle'); setCircle([lat, lng]); };
   placeOf(lat, lng).then(y => { const el = $('dname'); if (el) el.textContent = y ? (yerTxt(y) || 'Adı bulunamadı') : lat + ', ' + lng; });
+}
+/* ---------- Duraklı rota: başlangıç → hedef, yol üstündeki kümesler durak ---------- */
+const routeLayer = L.layerGroup().addTo(map);
+let RT = { from: null, to: null, toName: '', w: 3, only: 'q', sel: null };
+function getMe() { return new Promise(res => { if (meMarker) return res([meMarker.getLatLng().lat, meMarker.getLatLng().lng]); if (!navigator.geolocation) return res(null); navigator.geolocation.getCurrentPosition(pos => { const ll = [pos.coords.latitude, pos.coords.longitude]; meMarker = L.circleMarker(ll, { radius: 9, color: '#fff', weight: 3, fillColor: '#3b82f6', fillOpacity: 1 }).addTo(map); res(ll); }, () => res(null), { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }); }); }
+async function routeTo(to, name) {
+  RT.to = to.map(v => +(+v).toFixed(6)); RT.toName = name || 'Hedef'; RT.sel = null;
+  toast('Konumun alınıyor…'); RT.from = await getMe();
+  if (!RT.from) { const c = map.getCenter(); RT.from = [+c.lat.toFixed(6), +c.lng.toFixed(6)]; toast('Konum alınamadı · başlangıç haritanın ortası'); }
+  routeCard();
+}
+function routeStops() {
+  const line = turf.lineString([[RT.from[1], RT.from[0]], [RT.to[1], RT.to[0]]]), total = kmBetween(RT.from, RT.to);
+  return S.pins.filter(p => p.st !== 'degil' && p.st !== 'kapali' && (RT.only === 'all' || (RT.only === 'q' ? !p.lead : !!p.lead)))
+    .map(p => { const pt = turf.point([p.lng, p.lat]); const off = turf.pointToLineDistance(pt, line, { units: 'kilometers' }); const along = turf.length(turf.lineSlice(line.geometry.coordinates[0], turf.nearestPointOnLine(line, pt).geometry.coordinates, line)); return { p, off, along }; })
+    .filter(x => x.off <= RT.w && x.along > 0.05 && x.along < total - 0.05 && kmBetween([x.p.lat, x.p.lng], RT.to) > 0.05).sort((a, b) => a.along - b.along);
+}
+function routeCard() {
+  const st = routeStops(); if (!RT.sel) RT.sel = new Set(st.slice(0, 9).map(x => x.p.id));
+  routeLayer.clearLayers();
+  L.polyline([RT.from, RT.to], { color: '#ffe14d', weight: 3, dashArray: '8 8', interactive: false }).addTo(routeLayer);
+  try { L.geoJSON(turf.buffer(turf.lineString([[RT.from[1], RT.from[0]], [RT.to[1], RT.to[0]]]), RT.w, { units: 'kilometers' }), { style: { color: '#ffe14d', weight: 1, fillOpacity: .06 }, interactive: false }).addTo(routeLayer); } catch (e) {}
+  L.circleMarker(RT.to, { radius: 8, color: '#fff', weight: 3, fillColor: '#ef4444', fillOpacity: 1, interactive: false }).addTo(routeLayer);
+  map.fitBounds(L.latLngBounds([RT.from, RT.to]).pad(0.15));
+  const chosen = st.filter(x => RT.sel.has(x.p.id));
+  open('<div class="ph"><h3>🛣️ ' + esc(RT.toName) + ' rotası</h3><button class="x" data-close>✕</button></div>' +
+    '<div class="muted">Kuş uçuşu ' + fmtKm(kmBetween(RT.from, RT.to)) + ' · yolun iki yanındaki kümesler, yakından uzağa sıralı</div>' +
+    '<div class="chips">' + [1, 2, 3, 5, 10].map(w => '<button class="chip" data-w="' + w + '" aria-pressed="' + (RT.w === w) + '">' + w + ' km</button>').join('') + '</div>' +
+    '<div class="chips">' + [['q', '❓ Bilinmeyenler'], ['c', '👤 Müşteriler'], ['all', 'Hepsi']].map(([k, n]) => '<button class="chip" data-o="' + k + '" aria-pressed="' + (RT.only === k) + '">' + n + '</button>').join('') + '</div>' +
+    '<div class="list">' + (st.length ? st.map(x => { const c = x.p.lead && custById(x.p.lead); return '<button class="item" data-tg="' + x.p.id + '"><b style="font-size:20px">' + (RT.sel.has(x.p.id) ? '☑️' : '⬜') + '</b><div class="g"><b>' + esc(pinLabel(x.p)) + '</b><small>' + esc([c ? [c.k, c.st].filter(Boolean).join(' · ') : yerTxt(x.p), 'yoldan ' + fmtKm(x.off) + ' sapma'].filter(Boolean).join(' · ')) + '</small></div><b class="km">' + fmtKm(x.along) + '</b></button>'; }).join('') : '<div class="muted">Bu genişlikte yol üstünde kümes yok. Genişliği artır.</div>') + '</div>' +
+    (chosen.length > 9 ? '<div class="muted">⚠️ Google Maps en fazla 9 durak alır, ilk 9’u gönderilir.</div>' : '') +
+    '<a class="btn pri full" id="rgo" target="_blank" rel="noopener">🧭 Google Maps’te aç (' + Math.min(chosen.length, 9) + ' durak)</a>' +
+    '<a class="btn full" href="https://maps.apple.com/?dirflg=d&daddr=' + RT.to[0] + ',' + RT.to[1] + '" target="_blank" rel="noopener">Apple Haritalar (duraksız, sadece hedef)</a>' +
+    '<button class="btn full" id="rclr">Rotayı kaldır</button>');
+  const wp = chosen.slice(0, 9).map(x => x.p.lat + ',' + x.p.lng).join('|');
+  $('rgo').href = 'https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=' + RT.from[0] + ',' + RT.from[1] + '&destination=' + RT.to[0] + ',' + RT.to[1] + (wp ? '&waypoints=' + encodeURIComponent(wp) : '');
+  document.querySelectorAll('#panel [data-w]').forEach(b => b.onclick = () => { RT.w = +b.dataset.w; RT.sel = null; routeCard(); });
+  document.querySelectorAll('#panel [data-o]').forEach(b => b.onclick = () => { RT.only = b.dataset.o; RT.sel = null; routeCard(); });
+  document.querySelectorAll('#panel [data-tg]').forEach(b => b.onclick = () => { const id = b.dataset.tg; RT.sel.has(id) ? RT.sel.delete(id) : RT.sel.add(id); const t = $('panel').scrollTop; routeCard(); $('panel').scrollTop = t; });
+  $('rclr').onclick = () => { routeLayer.clearLayers(); close(); setMode('pan'); };
 }
 /* ---------- Daire ve km ---------- */
 const kmBetween = (a, b) => turf.distance([a[1], a[0]], [b[1], b[0]], { units: 'kilometers' });
@@ -436,6 +480,7 @@ function help() {
     '<div>🖱️ <b>Bilgisayarda</b>: Tara’dayken sol tık basılı yeşil çizer, sağ tık basılı haritayı kaydırır, tekerlek yakınlaştırır. Her yerde çift tık = kümes ekle.</div>' +
     '<div>🏠 <b>Kümes</b>: çift dokun ya da Kümes’e basıp çatıya dokun, müşteriyi seç. Bilmiyorsan seçmeden kaydet, ❓ olur ve köyü kendiliğinden yazılır. Sonra açıp “Kümes kapanmış” ya da “Kümes değil” seçebilirsin. İşarete dokununca kartı açılır: telefon, düzenle, taşı, yol tarifi.</div>' +
     '<div>⭕ <b>Daire</b>: bir kümese ya da herhangi bir yere dokun; 1–30 km arası daire çizilir, içindeki kümesler yakından uzağa km’siyle listelenir.</div>' +
+    '<div>🛣️ <b>Rota</b>: gideceğin yere dokun. Yolun iki yanındaki ❓ kümesler (ya da müşteriler) durak olarak listelenir; işaretle, “Google Maps’te aç” de, duraklarıyla açılır.</div>' +
     '<div>↶ <b>Geri al</b>: son çizimi, eklemeyi ya da silmeyi geri alır.</div>' +
     '<div>🔎 <b>Arama</b>: müşteri adı yaz, işaretliyse kümesine, değilse köyüne gider.</div>' +
     '<div>☰ <b>Menü</b>: Görev Matrisi’ne gönder / Görev Matrisi’nden al. Gönder dedikçe bütün harita Görev Matrisi’nde yedeklenir.</div></div>');
