@@ -95,7 +95,7 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js"></script>
+<script src="gshim.js?v=202611221748"></script>
 <script>
 function APP() {
 const KEY = 'kumes-harita-v1';
@@ -618,6 +618,10 @@ setTimeout(fixOldKoy, 2500);
 if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' değişiklik var · sarı Aktar düğmesine bas'), 900);
 if (!S.cust.length && !S.pins.length) setTimeout(help, 600);
 }
+/* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
+const APP_VER = '202611221748';
+function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) location.replace(location.pathname + '?v=' + t + location.hash); }).catch(() => {}); }
+checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
 const GKEY_DEFAULT = 'AIzaSyCE3zuULF8IlW7TOx-aB9wNoN5xwCLyKQE';
 (function boot() {
