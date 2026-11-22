@@ -95,8 +95,9 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
+<script src="gshim.js"></script>
 <script>
-{
+function APP() {
 const KEY = 'kumes-harita-v1';
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -121,6 +122,7 @@ const labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services
 const roads = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 19, opacity: .8 });
 const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, maxNativeZoom: 19, attribution: '© OpenStreetMap' });
 function applyLayer() {
+  if (window.GOOG) { map.g.setMapTypeId(S.layer === 'street' ? 'roadmap' : S.layer === 'sat' ? 'satellite' : 'hybrid'); return; }
   [sat, labels, roads, street].forEach(l => map.hasLayer(l) && map.removeLayer(l));
   if (S.layer === 'street') street.addTo(map); else { sat.addTo(map); if (S.layer === 'satlbl') { roads.addTo(map); labels.addTo(map); } }
 }
@@ -171,14 +173,14 @@ let path = null, tmp = null;
 const mapEl = $('map');
 function ptLL(ev) { const r = mapEl.getBoundingClientRect(); return map.containerPointToLatLng([ev.clientX - r.left, ev.clientY - r.top]); }
 let rpan = null;
-mapEl.addEventListener('contextmenu', ev => ev.preventDefault());
+mapEl.addEventListener('contextmenu', ev => ev.preventDefault(), true);
 mapEl.addEventListener('pointerdown', ev => {
   if (ev.pointerType === 'mouse' && ev.button === 2) { ev.preventDefault(); rpan = { x: ev.clientX, y: ev.clientY }; try { mapEl.setPointerCapture(ev.pointerId); } catch (e) {} return; }
   if (mode !== 'draw' || !ev.isPrimary || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
   ev.preventDefault(); path = [ptLL(ev)]; tmp = L.polyline(path, { color: '#2fd36b', weight: 4, dashArray: '6 6' }).addTo(map);
   try { mapEl.setPointerCapture(ev.pointerId); } catch (e) {}
-}, { passive: false });
-mapEl.addEventListener('pointermove', ev => { if (rpan) { map.panBy([rpan.x - ev.clientX, rpan.y - ev.clientY], { animate: false }); rpan = { x: ev.clientX, y: ev.clientY }; return; } if (!path) return; ev.preventDefault(); const ll = ptLL(ev); const last = path[path.length - 1]; if (map.latLngToContainerPoint(last).distanceTo(map.latLngToContainerPoint(ll)) < 4) return; path.push(ll); tmp.setLatLngs(path); }, { passive: false });
+}, { passive: false, capture: true });
+mapEl.addEventListener('pointermove', ev => { if (rpan) { map.panBy([rpan.x - ev.clientX, rpan.y - ev.clientY], { animate: false }); rpan = { x: ev.clientX, y: ev.clientY }; return; } if (!path) return; ev.preventDefault(); const ll = ptLL(ev); const last = path[path.length - 1]; if (map.latLngToContainerPoint(last).distanceTo(map.latLngToContainerPoint(ll)) < 4) return; path.push(ll); tmp.setLatLngs(path); }, { passive: false, capture: true });
 const endDraw = ev => {
   if (rpan) { rpan = null; return; }
   if (!path) return; const pts = path; path = null; map.removeLayer(tmp); tmp = null;
@@ -189,7 +191,7 @@ const endDraw = ev => {
   snapshot(); addArea(poly); save(); drawAreas();
   const ha = Math.round(turf.area(poly) / 1000) / 10; toast('Tarandı · ' + ha.toString().replace('.', ',') + ' hektar');
 };
-mapEl.addEventListener('pointerup', endDraw); mapEl.addEventListener('pointercancel', endDraw);
+mapEl.addEventListener('pointerup', endDraw, true); mapEl.addEventListener('pointercancel', endDraw, true);
 // Bir alanın içindeki boşlukları (çizgiyle eski alan arasında kapalı kalan yerleri) doldurur
 function fillHoles(f) {
   const g = f.geometry; if (!g) return f;
@@ -401,8 +403,8 @@ $('undo').onclick = () => { const h = hist.pop(); if (!h) return; S.chg = Math.m
 $('lay').onclick = () => {
   open('<div class="ph"><h3>Harita görünümü</h3><button class="x" data-close>✕</button></div><div class="list">' +
     [['sat', 'Uydu', 'Sadece uydu fotoğrafı'], ['satlbl', 'Uydu + yollar ve köy adları', 'Yol ve yer adları üstte'], ['street', 'Sokak haritası', 'Uydusuz, yollar belirgin']].map(([k, n, d]) => '<button class="item" data-l="' + k + '"><div class="g"><b>' + (S.layer === k ? '✓ ' : '') + n + '</b><small>' + d + '</small></div></button>').join('') + '</div>');
-  $('panel').insertAdjacentHTML('beforeend', '<div class="lbl">Yerler</div><button class="item" id="poit"><b style="font-size:20px">' + (S.poi !== 0 ? '☑️' : '⬜') + '</b><div class="g"><b>Benzinlik, market, lokanta… göster</b><small>Yakınlaştırınca görünür, üstüne basınca bilgileri çıkar</small></div></button>');
-  $('poit').onclick = () => { S.poi = S.poi === 0 ? 1 : 0; save(); poiLoad(true); close(); };
+  if (!window.GOOG) $('panel').insertAdjacentHTML('beforeend', '<div class="lbl">Yerler</div><button class="item" id="poit"><b style="font-size:20px">' + (S.poi !== 0 ? '☑️' : '⬜') + '</b><div class="g"><b>Benzinlik, market, lokanta… göster</b><small>Yakınlaştırınca görünür, üstüne basınca bilgileri çıkar</small></div></button>');
+  if ($('poit')) $('poit').onclick = () => { S.poi = S.poi === 0 ? 1 : 0; save(); poiLoad(true); close(); };
   document.querySelectorAll('#panel [data-l]').forEach(b => b.onclick = () => { S.layer = b.dataset.l; save(); applyLayer(); close(); });
 };
 /* ---------- Yerler (OpenStreetMap): benzinlik, market, lokanta, eczane, cami… ---------- */
@@ -412,6 +414,7 @@ function poiKind(t) { const k = t.amenity || t.shop || t.craft || t.tourism || t
 let poiT = null, poiKey = '', poiData = [];
 map.on('moveend', () => { clearTimeout(poiT); poiT = setTimeout(poiLoad, 700); });
 async function poiLoad(force) {
+  if (window.GOOG) return;
   if (S.poi === 0 || map.getZoom() < 14) { poiLayer.clearLayers(); poiKey = ''; return; }
   const b = map.getBounds().pad(0.3), r4 = v => v.toFixed(3), key = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(r4).join(',');
   if (!force && poiKey && poiData.length && poiKey.split(',').every((v, i) => i < 2 ? +v <= +key.split(',')[i] : +v >= +key.split(',')[i])) { poiDraw(); return; }
@@ -502,11 +505,15 @@ $('menu').onclick = () => {
     '<div class="muted">Bulduğun kümes yerleri ve bütün harita (yedek) kopyalanır. Görev Matrisi → Müşteri → 🛰️ Uydu haritası → “Haritadan al” kutusuna yapıştır.</div>' +
     '<button class="btn full" id="m-in">⬇️ Görev Matrisi’nden al (yapıştır)</button>' +
     '<div class="lbl">Ayrıntılı</div><div class="row"><button class="btn" id="m-list">❓ Bilinmeyenler (' + unk + ')</button><button class="btn" id="m-help">Nasıl kullanılır</button></div>' +
+    '<button class="btn full" id="m-key">🔑 Google harita anahtarı' + (window.GOOG ? ' · açık ✓' : '') + '</button>' +
     '<button class="btn full dan" id="m-wipe">Taranan alanların hepsini sil</button>');
   $('m-out').onclick = sendOut;
   $('m-in').onclick = pasteIn;
   $('m-list').onclick = () => { const L2 = S.pins.filter(p => !p.lead); open('<div class="ph"><h3>❓ Bilinmeyen kümesler</h3><button class="x" data-close>✕</button></div><div class="list">' + (L2.length ? L2.slice().sort((a, b) => yerTxt(a).localeCompare(yerTxt(b), 'tr')).map(p => '<button class="item" data-go="' + p.id + '"><div class="g"><b>' + esc(pinLabel(p)) + '</b><small>' + esc([p.st ? PST[p.st] : '', yerTxt(p), p.note].filter(Boolean).join(' · ')) + '</small></div>›</button>').join('') : '<div class="muted">Yok.</div>') + '</div>'); document.querySelectorAll('#panel [data-go]').forEach(b => b.onclick = () => { const z = S.pins.find(x => x.id === b.dataset.go); close(); map.setView([z.lat, z.lng], 17); setTimeout(() => pinCard(z), 300); }); };
   $('m-help').onclick = help;
+  $('m-key').onclick = () => { let cur = ''; try { cur = localStorage.getItem('kh-gkey') || ''; } catch (e) {}
+    open('<div class="ph"><h3>🔑 Google harita anahtarı</h3><button class="x" data-close>✕</button></div><div class="muted">Google Cloud’dan aldığın AIza… ile başlayan anahtarı yapıştır. Boş bırakıp kaydedersen eski haritaya döner.</div><input class="field" id="gk" value="' + esc(cur) + '" placeholder="AIza…" autocomplete="off"><button class="btn pri full" id="gkok">Kaydet ve yeniden aç</button>');
+    $('gkok').onclick = () => { const v = $('gk').value.trim(); try { if (v) localStorage.setItem('kh-gkey', v); else localStorage.setItem('kh-gkey', ''); sessionStorage.removeItem('kh-gfail'); } catch (e) {} location.reload(); }; };
   $('m-wipe').onclick = () => { if (!S.areas.length) return; snapshot(); S.areas = []; save(); drawAreas(); close(); toast('Silindi · Geri al ile geri getirebilirsin'); };
 };
 function pasteIn() {
@@ -563,10 +570,26 @@ window.addEventListener('hashchange', fromHash);
 
 if (!S.fh && S.areas.length) { const old0 = S.areas; try { const old = S.areas, before = JSON.stringify(old.map(x => x.geometry)); S.areas = []; old.forEach(x => addArea(x)); if (JSON.stringify(S.areas.map(x => x.geometry)) !== before) S.chg = (S.chg || 0) + 1; } catch (e) { S.areas = old0; } S.fh = 1; save(); }
 drawAreas(); drawPins(); fromHash(); sendBadge();
+if (window.GOOG_ERR) setTimeout(() => toast(window.GOOG_ERR), 800);
 setTimeout(fixOldKoy, 2500);
 if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' değişiklik var · sarı Aktar düğmesine bas'), 900);
 if (!S.cust.length && !S.pins.length) setTimeout(help, 600);
 }
+/* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
+const GKEY_DEFAULT = '';
+(function boot() {
+  let k = GKEY_DEFAULT; try { const it = localStorage.getItem('kh-gkey'); if (it !== null) k = it; } catch (e) {}
+  window.GOOG = false;
+  if (!k) { APP(); return; }
+  let started = false; const go = goog => { if (started) return; started = true; window.GOOG = goog; if (goog) installShim(); APP(); };
+  window.gmReady = () => go(true);
+  window.gm_authFailure = () => { try { localStorage.removeItem('kh-gkey'); } catch (e) {} if (!sessionStorage.getItem('kh-gfail')) { sessionStorage.setItem('kh-gfail', '1'); alert('Google harita anahtarı çalışmadı. Eski haritaya dönülüyor. Menü → 🔑 Google anahtarı ile tekrar deneyebilirsin.'); location.reload(); } };
+  const sc = document.createElement('script'); sc.async = true;
+  sc.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(k) + '&callback=gmReady&language=tr&region=TR&v=weekly&loading=async';
+  sc.onerror = () => { window.GOOG_ERR = 'Google haritası yüklenemedi, eski harita açıldı'; go(false); };
+  document.head.appendChild(sc);
+  setTimeout(() => { if (!started) { window.GOOG_ERR = 'Google haritası geç kaldı, eski harita açıldı'; go(false); } }, 12000);
+})();
 </script>
 </body>
 </html>
