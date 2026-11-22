@@ -401,9 +401,11 @@ function pasteIn() {
     if (!o || !Array.isArray(o.cust)) return toast('Müşteri listesi bulunamadı');
     S.cust = o.cust; let added = 0, restored = false;
     if (o.full && (o.full.pins || o.full.areas) && !S.pins.length && !S.areas.length) { S.pins = o.full.pins || []; S.areas = o.full.areas || []; restored = true; }
-    S.cust.forEach(c => { if (c.g && !S.pins.some(p => p.lead === c.i)) { S.pins.push({ id: uid(), lat: c.g[0], lng: c.g[1], lead: c.i, name: '', note: '', cnt: '', t: Date.now() }); added++; } });
+    let linked = 0;
+    S.cust.forEach(c => { if (!c.mp) return; const pin = S.pins.find(p => p.id === c.mp); if (pin && !pin.lead && !/^❓ /.test(c.n)) { pin.lead = c.i; linked++; } });
+    S.cust.forEach(c => { if (c.g && !c.mp && !S.pins.some(p => p.lead === c.i)) { S.pins.push({ id: uid(), lat: c.g[0], lng: c.g[1], lead: c.i, name: '', note: '', cnt: '', t: Date.now() }); added++; } });
     save(); drawPins(); drawAreas(); close();
-    toast(S.cust.length + ' müşteri alındı' + (added ? ' · ' + added + ' konum haritaya eklendi' : '') + (restored ? ' · yedek geri yüklendi' : ''));
+    toast(S.cust.length + ' müşteri alındı' + (added ? ' · ' + added + ' konum haritaya eklendi' : '') + (linked ? ' · ' + linked + ' bilinmeyen kümesin sahibi işlendi' : '') + (restored ? ' · yedek geri yüklendi' : ''));
   };
 }
 function help() {
