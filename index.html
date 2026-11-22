@@ -576,7 +576,7 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length) setTimeout(help, 600);
 }
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
-const GKEY_DEFAULT = '';
+const GKEY_DEFAULT = 'AIzaSyCE3zuULF8IlW7TOx-aB9wNoN5xwCLyKQE';
 (function boot() {
   let k = GKEY_DEFAULT; try { const it = localStorage.getItem('kh-gkey'); if (it !== null) k = it; } catch (e) {}
   window.GOOG = false;
