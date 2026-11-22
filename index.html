@@ -189,12 +189,26 @@ const endDraw = ev => {
   const ha = Math.round(turf.area(poly) / 1000) / 10; toast('Tarandı · ' + ha.toString().replace('.', ',') + ' hektar');
 };
 mapEl.addEventListener('pointerup', endDraw); mapEl.addEventListener('pointercancel', endDraw);
+// Bir alanın içindeki boşlukları (çizgiyle eski alan arasında kapalı kalan yerleri) doldurur
+function fillHoles(f) {
+  const g = f.geometry; if (!g) return f;
+  let polys = g.type === 'Polygon' ? [[g.coordinates[0]]] : g.type === 'MultiPolygon' ? g.coordinates.map(pc => [pc[0]]) : null;
+  if (!polys) return f;
+  let out = turf.polygon(polys[0]);
+  for (let k = 1; k < polys.length; k++) { try { out = turf.union(out, turf.polygon(polys[k])) || out; } catch (e) {} }
+  const og = out.geometry; if (og.type === 'Polygon') og.coordinates = [og.coordinates[0]]; else if (og.type === 'MultiPolygon') og.coordinates = og.coordinates.map(pc => [pc[0]]);
+  return { type: 'Feature', properties: f.properties || {}, geometry: og };
+}
 function addArea(poly) {
-  // Yeni alan, değdiği eski alanlarla birleşir (dairenin ucundan çekilen çizgi ilk daireye eklenir)
-  let merged = { type: 'Feature', properties: {}, geometry: poly.geometry }; const keep = []; const notes = [];
-  S.areas.forEach(a => { let hit = false; try { hit = turf.booleanIntersects(a, merged); } catch (e) {} if (hit) { try { const u = turf.union(a, merged); if (u) { merged = u; if (a.properties && a.properties.note) notes.push(a.properties.note); return; } } catch (e) {} } keep.push(a); });
-  merged.properties = { id: uid(), t: Date.now(), note: notes.join(' · ') };
-  S.areas = keep.concat([merged]);
+  // Yeni alan, değdiği eski alanlarla birleşir; aralarda kapalı kalan boşluklar da yeşile boyanır
+  let merged = { type: 'Feature', properties: {}, geometry: poly.geometry }; let rest = S.areas.slice(); const notes = [];
+  for (let loop = 0, ch = true; ch && loop < 6; loop++) {
+    ch = false; const keep = [];
+    rest.forEach(a => { let hit = false; try { hit = turf.booleanIntersects(a, merged); } catch (e) {} if (hit) { try { const u = turf.union(a, merged); if (u) { merged = u; ch = true; if (a.properties && a.properties.note) notes.push(a.properties.note); return; } } catch (e) {} } keep.push(a); });
+    rest = keep; try { const fh = fillHoles(merged); if (JSON.stringify(fh.geometry) !== JSON.stringify(merged.geometry)) ch = true; merged = fh; } catch (e) {}
+  }
+  merged.properties = { id: uid(), t: Date.now(), note: [...new Set(notes)].join(' · ') };
+  S.areas = rest.concat([merged]);
 }
 function areaCard(f) {
   const ha = Math.round(turf.area(f) / 1000) / 10, d = new Date((f.properties && f.properties.t) || Date.now());
@@ -508,6 +522,7 @@ function fromHash() {
 }
 window.addEventListener('hashchange', fromHash);
 
+if (!S.fh && S.areas.length) { try { const old = S.areas, before = JSON.stringify(old.map(x => x.geometry)); S.areas = []; old.forEach(x => addArea(x)); if (JSON.stringify(S.areas.map(x => x.geometry)) !== before) S.chg = (S.chg || 0) + 1; } catch (e) {} S.fh = 1; save(); }
 drawAreas(); drawPins(); fromHash(); sendBadge();
 setTimeout(fixOldKoy, 2500);
 if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' değişiklik var · sarı Aktar düğmesine bas'), 900);
