@@ -524,6 +524,11 @@ function pasteIn() {
   $('pc-clip').onclick = async () => { try { $('pc-t').value = await navigator.clipboard.readText(); } catch (e) { toast('Kutuya basılı tutup Yapıştır de'); } };
   $('pc-ok').onclick = () => {
     let o; try { o = JSON.parse($('pc-t').value.trim()); } catch (e) { return toast('Bu yazı anlaşılamadı'); }
+    importPayload(o);
+  };
+}
+// Görev Matrisi'nden gelen müşteri listesi + harita yedeği (yapıştırma ya da bağlantıyla)
+function importPayload(o) {
     if (!o || !Array.isArray(o.cust)) return toast('Müşteri listesi bulunamadı');
     S.cust = o.cust; let added = 0, restored = false;
     // Başka cihazda yapılanları birleştir: eksik işaretler eklenir, aynı işaretin yenisi kalır; yeşil alanlar üst üste birleşir
@@ -540,7 +545,6 @@ function pasteIn() {
     S.cust.forEach(c => { if (c.g && !c.mp && !S.pins.some(p => p.lead === c.i)) { S.pins.push({ id: uid(), lat: c.g[0], lng: c.g[1], lead: c.i, name: '', note: '', cnt: '', t: Date.now() }); added++; } });
     save(); drawPins(); drawAreas(); close();
     toast(S.cust.length + ' müşteri alındı' + (added ? ' · ' + added + ' konum haritaya eklendi' : '') + (linked ? ' · ' + linked + ' bilinmeyen kümesin sahibi işlendi' : '') + (restored ? ' · diğer cihazdaki çizim ve işaretler eklendi' : ''));
-  };
 }
 function help() {
   open('<div class="ph"><h3>Nasıl kullanılır</h3><button class="x" data-close>✕</button></div><div class="list" style="gap:10px;font-size:15px">' +
@@ -570,8 +574,18 @@ $('sbg').onclick = close;
 let tt = null; function toast(m) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(tt); tt = setTimeout(() => t.style.display = 'none', 2600); }
 
 /* ---------- Görev Matrisi'nden gelen bağlantı: #ll=38.1,28.2 ya da #m=müşteriId ---------- */
-function fromHash() {
-  const h = decodeURIComponent(location.hash.slice(1)); if (!h) return;
+async function fromHash() {
+  const raw = location.hash.slice(1);
+  if (raw.startsWith('gz=')) {
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+    try {
+      const b = raw.slice(3).replace(/-/g, '+').replace(/_/g, '/'), bin = atob(b), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      const txt = await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+      importPayload(JSON.parse(txt));
+    } catch (e) { toast('Görev Matrisi bilgileri okunamadı'); }
+    return;
+  }
+  const h = decodeURIComponent(raw); if (!h) return;
   const m = h.match(/^ll=(-?[\d.]+),(-?[\d.]+)/); if (m) { map.setView([+m[1], +m[2]], 17); return; }
   const c = h.match(/^m=(.+)$/); if (c) setTimeout(() => goCust(c[1]), 400);
 }
