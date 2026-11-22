@@ -67,6 +67,7 @@ textarea.field{min-height:84px;resize:vertical}
 .leaflet-control-attribution{font-size:9px;background:rgba(0,0,0,.45)!important;color:#ccc}.leaflet-control-attribution a{color:#ddd}
 .leaflet-control-zoom{display:none}
 .drawing #map{cursor:crosshair}
+.tog{position:fixed;left:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 150px);z-index:1002;width:64px;height:64px;border-radius:50%;background:rgba(15,26,20,.92);border:2px solid var(--line);box-shadow:0 6px 18px rgba(0,0,0,.5);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:24px;line-height:1;color:var(--ink)}.tog small{font-size:10.5px;font-weight:700;margin-top:2px}.tog.on{background:var(--green);color:#06210f;border-color:#06210f}
 .send{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 82px);z-index:1001;background:#ffe14d;color:#1b1500;border-radius:14px;padding:10px 14px;font-weight:700;font-size:14.5px;box-shadow:0 6px 20px rgba(0,0,0,.45);display:none;white-space:nowrap}
 body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 </style>
@@ -82,6 +83,7 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 <div class="hint" id="hint"></div>
 <div class="toast" id="toast"></div>
 <button class="send" id="send"></button>
+<button class="tog" id="tog" aria-label="Gez / Çiz"><span id="togi">✏️</span><small id="togt">Çiz</small></button>
 <div class="bar"><div>
   <button class="tb" data-mode="pan" aria-pressed="true"><b>✋</b>Gez</button>
   <button class="tb" data-mode="draw"><b>✏️</b>Tara</button>
@@ -95,7 +97,7 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611221748"></script>
+<script src="gshim.js?v=202611221751"></script>
 <script>
 function APP() {
 const KEY = 'kumes-harita-v1';
@@ -165,8 +167,10 @@ function setMode(m) {
   mode = m; document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m));
   document.body.classList.toggle('drawing', m === 'draw');
   if (m === 'draw') { map.dragging.disable(); map.touchZoom.disable(); } else { map.dragging.enable(); map.touchZoom.enable(); }
+  const tg0 = $('tog'); if (tg0) { tg0.classList.toggle('on', m === 'draw'); $('togi').textContent = m === 'draw' ? '✋' : '✏️'; $('togt').textContent = m === 'draw' ? 'Gez' : 'Çiz'; }
   const h = $('hint'); h.textContent = HINTS[m] || ''; h.style.display = HINTS[m] ? 'block' : 'none';
 }
+$('tog').onclick = () => setMode(mode === 'draw' ? 'pan' : 'draw');
 document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode === mode && mode !== 'pan' ? 'pan' : b.dataset.mode));
 
 /* ---------- Kalemle tarama ---------- */
@@ -619,7 +623,7 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length) setTimeout(help, 600);
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
-const APP_VER = '202611221748';
+const APP_VER = '202611221751';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) location.replace(location.pathname + '?v=' + t + location.hash); }).catch(() => {}); }
 checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
