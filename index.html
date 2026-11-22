@@ -63,6 +63,7 @@ textarea.field{min-height:84px;resize:vertical}
 .pin i{width:22px;height:22px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.6);display:grid;place-items:center;font-style:normal;font-weight:900;font-size:13px;color:#fff}
 .pin span{margin-top:2px;background:rgba(0,0,0,.72);color:#fff;font-size:11.5px;font-weight:700;padding:1px 6px;border-radius:6px;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis}
 .pin.q i{background:var(--q);color:#1b1000}.pin.x i{background:#6b7280}.pin.n i{background:#374151;width:16px;height:16px;border-width:2px}.pin.c i{background:var(--cust)}.pin.s i{background:var(--sale)}.pin.sel i{outline:3px solid #ffe14d}
+.poi{display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);width:max-content}.poi i{font-style:normal;font-size:15px;width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.92);display:grid;place-items:center;box-shadow:0 1px 4px rgba(0,0,0,.5)}.poi span{margin-top:1px;font-size:10.5px;font-weight:700;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .leaflet-control-attribution{font-size:9px;background:rgba(0,0,0,.45)!important;color:#ccc}.leaflet-control-attribution a{color:#ddd}
 .leaflet-control-zoom{display:none}
 .drawing #map{cursor:crosshair}
@@ -400,8 +401,46 @@ $('undo').onclick = () => { const h = hist.pop(); if (!h) return; S.chg = Math.m
 $('lay').onclick = () => {
   open('<div class="ph"><h3>Harita görünümü</h3><button class="x" data-close>✕</button></div><div class="list">' +
     [['sat', 'Uydu', 'Sadece uydu fotoğrafı'], ['satlbl', 'Uydu + yollar ve köy adları', 'Yol ve yer adları üstte'], ['street', 'Sokak haritası', 'Uydusuz, yollar belirgin']].map(([k, n, d]) => '<button class="item" data-l="' + k + '"><div class="g"><b>' + (S.layer === k ? '✓ ' : '') + n + '</b><small>' + d + '</small></div></button>').join('') + '</div>');
+  $('panel').insertAdjacentHTML('beforeend', '<div class="lbl">Yerler</div><button class="item" id="poit"><b style="font-size:20px">' + (S.poi !== 0 ? '☑️' : '⬜') + '</b><div class="g"><b>Benzinlik, market, lokanta… göster</b><small>Yakınlaştırınca görünür, üstüne basınca bilgileri çıkar</small></div></button>');
+  $('poit').onclick = () => { S.poi = S.poi === 0 ? 1 : 0; save(); poiLoad(true); close(); };
   document.querySelectorAll('#panel [data-l]').forEach(b => b.onclick = () => { S.layer = b.dataset.l; save(); applyLayer(); close(); });
 };
+/* ---------- Yerler (OpenStreetMap): benzinlik, market, lokanta, eczane, cami… ---------- */
+const poiLayer = L.layerGroup().addTo(map);
+const POI_T = { fuel: ['⛽', 'Benzinlik'], restaurant: ['🍽️', 'Lokanta'], fast_food: ['🍔', 'Büfe'], cafe: ['☕', 'Kahvehane / kafe'], pharmacy: ['💊', 'Eczane'], hospital: ['🏥', 'Hastane'], clinic: ['🏥', 'Sağlık ocağı'], doctors: ['🩺', 'Doktor'], place_of_worship: ['🕌', 'Cami'], school: ['🏫', 'Okul'], bank: ['🏦', 'Banka'], atm: ['🏧', 'ATM'], post_office: ['📮', 'PTT'], police: ['🚓', 'Karakol'], townhall: ['🏛️', 'Muhtarlık / belediye'], veterinary: ['🐾', 'Veteriner'], marketplace: ['🧺', 'Pazar yeri'], car_repair: ['🔧', 'Oto tamir'], tyres: ['🛞', 'Lastikçi'], supermarket: ['🛒', 'Market'], convenience: ['🛒', 'Bakkal'], bakery: ['🥖', 'Fırın'], butcher: ['🥩', 'Kasap'], agrarian: ['🌾', 'Zirai / yem bayi'], hardware: ['🔨', 'Hırdavat'], farm: ['🚜', 'Çiftlik'], hotel: ['🏨', 'Otel'], truck_stop: ['🚛', 'Tır parkı'], parking: ['🅿️', 'Otopark'] };
+function poiKind(t) { const k = t.amenity || t.shop || t.craft || t.tourism || t.office || t.industrial || t.man_made || ''; const x = POI_T[k] || (t.shop ? ['🏪', 'Dükkan'] : t.craft ? ['🛠️', 'Atölye'] : t.office ? ['🏢', 'Ofis'] : t.industrial || t.man_made ? ['🏭', 'Tesis'] : ['📍', 'Yer']); return { ic: x[0], tr: x[1], raw: k }; }
+let poiT = null, poiKey = '', poiData = [];
+map.on('moveend', () => { clearTimeout(poiT); poiT = setTimeout(poiLoad, 700); });
+async function poiLoad(force) {
+  if (S.poi === 0 || map.getZoom() < 14) { poiLayer.clearLayers(); poiKey = ''; return; }
+  const b = map.getBounds().pad(0.3), r4 = v => v.toFixed(3), key = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(r4).join(',');
+  if (!force && poiKey && poiData.length && poiKey.split(',').every((v, i) => i < 2 ? +v <= +key.split(',')[i] : +v >= +key.split(',')[i])) { poiDraw(); return; }
+  const bb = '(' + key + ')';
+  const q = '[out:json][timeout:20];(nwr["amenity"]["name"]' + bb + ';nwr["shop"]' + bb + ';nwr["craft"]["name"]' + bb + ';nwr["office"]["name"]' + bb + ';nwr["tourism"="hotel"]' + bb + ';nwr["amenity"="fuel"]' + bb + ';nwr["landuse"="farmyard"]["name"]' + bb + ';);out center 400;';
+  try { const j = await (await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(q) })).json(); poiData = (j.elements || []).map(e => ({ id: e.type + e.id, lat: e.lat || (e.center && e.center.lat), lng: e.lon || (e.center && e.center.lon), t: e.tags || {} })).filter(x => x.lat); poiKey = key; poiDraw(); } catch (e) {}
+}
+function poiDraw() {
+  poiLayer.clearLayers(); const z = map.getZoom(), vb = map.getBounds();
+  poiData.filter(x => vb.contains([x.lat, x.lng])).forEach(x => { const k = poiKind(x.t), nm = x.t['name:tr'] || x.t.name || k.tr;
+    L.marker([x.lat, x.lng], { icon: L.divIcon({ className: '', iconSize: [0, 0], html: '<div class="poi"><i>' + k.ic + '</i>' + (z >= 16 ? '<span>' + esc(nm) + '</span>' : '') + '</div>' }), keyboard: false }).addTo(poiLayer)
+      .on('click', e => { L.DomEvent.stopPropagation(e); clearTimeout(clickT); poiCard(x); }).on('dblclick', e => L.DomEvent.stopPropagation(e)); });
+}
+function poiCard(x) {
+  const t = x.t, k = poiKind(t), nm = t['name:tr'] || t.name || k.tr;
+  const adr = [[t['addr:street'], t['addr:housenumber']].filter(Boolean).join(' No:'), t['addr:neighbourhood'] || t['addr:suburb'] || t['addr:village'], t['addr:district'] || t['addr:town'] || t['addr:city'], t['addr:province']].filter(Boolean).join(', ');
+  const ph = t.phone || t['contact:phone'] || t['contact:mobile'] || '', web = t.website || t['contact:website'] || '', oh = t.opening_hours || '';
+  const brand = t.brand || t.operator || '';
+  open('<div class="ph"><h3>' + k.ic + ' ' + esc(nm) + '</h3><button class="x" data-close>✕</button></div>' +
+    '<div class="muted">' + esc(k.tr + (brand && brand !== nm ? ' · ' + brand : '')) + '</div><div class="muted" id="padr">' + esc(adr || 'Adres aranıyor…') + '</div>' +
+    (ph ? '<div class="kv"><span>Telefon</span><b><a style="color:inherit" href="tel:' + esc(ph.split(';')[0]) + '">' + esc(ph.split(';')[0]) + '</a></b></div>' : '') +
+    (oh ? '<div class="kv"><span>Açık</span><b>' + esc(oh.replace(/Mo/g, 'Pzt').replace(/Tu/g, 'Sal').replace(/We/g, 'Çar').replace(/Th/g, 'Per').replace(/Fr/g, 'Cum').replace(/Sa/g, 'Cmt').replace(/Su/g, 'Paz').replace(/off/g, 'kapalı')) + '</b></div>' : '') +
+    (web ? '<div class="kv"><span>Web</span><b><a style="color:inherit" href="' + esc(/^https?:/.test(web) ? web : 'https://' + web) + '" target="_blank" rel="noopener">' + esc(web.replace(/^https?:\/\//, '').slice(0, 32)) + '</a></b></div>' : '') +
+    (meMarker ? '<div class="kv"><span>Sana uzaklık</span><b>' + fmtKm(kmBetween([meMarker.getLatLng().lat, meMarker.getLatLng().lng], [x.lat, x.lng])) + ' (kuş uçuşu)</b></div>' : '') +
+    '<a class="btn full" href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(nm + ' ' + x.lat.toFixed(5) + ',' + x.lng.toFixed(5)) + '" target="_blank" rel="noopener">ℹ️ Google Maps’te yorumlar, fotoğraflar, saatler</a>' +
+    navBtns(x.lat, x.lng));
+  if (!adr) placeOf(x.lat, x.lng).then(y => { const el = $('padr'); if (el) el.textContent = y ? yerTxt(y) : ''; });
+}
+setTimeout(poiLoad, 1500);
 
 /* ---------- Konumum ---------- */
 $('loc').onclick = () => {
