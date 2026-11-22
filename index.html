@@ -66,6 +66,8 @@ textarea.field{min-height:84px;resize:vertical}
 .leaflet-control-attribution{font-size:9px;background:rgba(0,0,0,.45)!important;color:#ccc}.leaflet-control-attribution a{color:#ddd}
 .leaflet-control-zoom{display:none}
 .drawing #map{cursor:crosshair}
+.send{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 82px);z-index:1001;background:#ffe14d;color:#1b1500;border-radius:14px;padding:10px 14px;font-weight:700;font-size:14.5px;box-shadow:0 6px 20px rgba(0,0,0,.45);display:none;white-space:nowrap}
+body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 </style>
 </head>
 <body>
@@ -78,6 +80,7 @@ textarea.field{min-height:84px;resize:vertical}
 <div class="results" id="res"></div>
 <div class="hint" id="hint"></div>
 <div class="toast" id="toast"></div>
+<button class="send" id="send"></button>
 <div class="bar"><div>
   <button class="tb" data-mode="pan" aria-pressed="true"><b>✋</b>Gez</button>
   <button class="tb" data-mode="draw"><b>✏️</b>Tara</button>
@@ -105,8 +108,8 @@ let S = { v: 1, areas: [], pins: [], cust: [], view: null, layer: 'satlbl', upd:
 try { const r = JSON.parse(localStorage.getItem(KEY) || 'null'); if (r && r.v) S = Object.assign(S, r); } catch (e) {}
 if (!S.lv2) { S.layer = 'satlbl'; S.lv2 = 1; }
 const hist = [];
-function save(snap) { S.upd = Date.now(); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Kaydedilemedi: telefonda yer yok'); } }
-function snapshot() { hist.push(JSON.stringify({ areas: S.areas, pins: S.pins })); if (hist.length > 40) hist.shift(); $('undo').disabled = false; }
+function save(snap) { S.upd = Date.now(); sendBadge(); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Kaydedilemedi: telefonda yer yok'); } }
+function snapshot() { S.chg = (S.chg || 0) + 1; hist.push(JSON.stringify({ areas: S.areas, pins: S.pins })); if (hist.length > 40) hist.shift(); $('undo').disabled = false; }
 try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
 
 /* ---------- Harita ---------- */
@@ -199,7 +202,7 @@ function areaCard(f) {
     '<div class="kv"><span>Büyüklük</span><b>' + ha.toString().replace('.', ',') + ' hektar</b></div><div class="kv"><span>Tarih</span><b>' + d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }) + '</b></div><div class="kv"><span>İçindeki kümes</span><b>' + inside.length + '</b></div>' +
     '<div class="lbl">Not</div><input class="field" id="an" value="' + esc(f.properties && f.properties.note) + '" placeholder="Örn: 1. hafta, Seydiköy güneyi">' +
     '<div class="row"><button class="btn dan" id="adel">Alanı sil</button><button class="btn pri" id="aok">Kaydet</button></div>');
-  $('aok').onclick = () => { f.properties = Object.assign({}, f.properties, { note: $('an').value.trim() }); save(); close(); toast('Kaydedildi'); };
+  $('aok').onclick = () => { S.chg = (S.chg || 0) + 1; f.properties = Object.assign({}, f.properties, { note: $('an').value.trim() }); save(); close(); toast('Kaydedildi'); };
   $('adel').onclick = () => { snapshot(); S.areas = S.areas.filter(a => a !== f && !(a.properties && f.properties && a.properties.id && a.properties.id === f.properties.id)); save(); drawAreas(); close(); toast('Alan silindi · Geri al ile geri getirebilirsin'); };
 }
 
@@ -312,7 +315,7 @@ function setCircle(c, from) {
 
 /* ---------- Geri al ---------- */
 $('undo').disabled = true;
-$('undo').onclick = () => { const h = hist.pop(); if (!h) return; const o = JSON.parse(h); S.areas = o.areas; S.pins = o.pins; save(); drawAreas(); drawPins(); $('undo').disabled = !hist.length; toast('Geri alındı'); };
+$('undo').onclick = () => { const h = hist.pop(); if (!h) return; S.chg = Math.max(0, (S.chg || 0) - 2); const o = JSON.parse(h); S.areas = o.areas; S.pins = o.pins; save(); drawAreas(); drawPins(); $('undo').disabled = !hist.length; toast('Geri alındı'); };
 
 /* ---------- Katman ---------- */
 $('lay').onclick = () => {
@@ -382,11 +385,7 @@ $('menu').onclick = () => {
     '<button class="btn full" id="m-in">⬇️ Görev Matrisi’nden al (yapıştır)</button>' +
     '<div class="lbl">Ayrıntılı</div><div class="row"><button class="btn" id="m-list">❓ Bilinmeyenler (' + unk + ')</button><button class="btn" id="m-help">Nasıl kullanılır</button></div>' +
     '<button class="btn full dan" id="m-wipe">Taranan alanların hepsini sil</button>');
-  $('m-out').onclick = async () => {
-    const rnd = (k, v) => typeof v === 'number' && !Number.isInteger(v) && Math.abs(v) < 200 ? Math.round(v * 1e5) / 1e5 : v;
-    const out = JSON.stringify({ kh: 1, at: Date.now(), geo: S.pins.filter(p => p.lead).map(p => [p.lead, p.lat, p.lng]), full: { areas: S.areas.map(a => { try { return turf.truncate(a, { precision: 5 }); } catch (e) { return a; } }), pins: S.pins.map(p => { const o = Object.assign({}, p); delete o._drag; return o; }) } }, rnd);
-    try { await navigator.clipboard.writeText(out); toast('Kopyalandı ✓ Şimdi Görev Matrisi’ne yapıştır'); } catch (e) { open('<div class="ph"><h3>Kopyala</h3><button class="x" data-close>✕</button></div><div class="muted">Otomatik kopyalanamadı. Kutuya basılı tut → Tümünü Seç → Kopyala.</div><textarea class="field" style="min-height:200px">' + esc(out) + '</textarea>'); }
-  };
+  $('m-out').onclick = sendOut;
   $('m-in').onclick = pasteIn;
   $('m-list').onclick = () => { const L2 = S.pins.filter(p => !p.lead); open('<div class="ph"><h3>❓ Bilinmeyen kümesler</h3><button class="x" data-close>✕</button></div><div class="list">' + (L2.length ? L2.slice().sort((a, b) => yerTxt(a).localeCompare(yerTxt(b), 'tr')).map(p => '<button class="item" data-go="' + p.id + '"><div class="g"><b>' + esc(pinLabel(p)) + '</b><small>' + esc([p.st ? PST[p.st] : '', yerTxt(p), p.note].filter(Boolean).join(' · ')) + '</small></div>›</button>').join('') : '<div class="muted">Yok.</div>') + '</div>'); document.querySelectorAll('#panel [data-go]').forEach(b => b.onclick = () => { const z = S.pins.find(x => x.id === b.dataset.go); close(); map.setView([z.lat, z.lng], 17); setTimeout(() => pinCard(z), 300); }); };
   $('m-help').onclick = help;
@@ -419,6 +418,14 @@ function help() {
     '<div>☰ <b>Menü</b>: Görev Matrisi’ne gönder / Görev Matrisi’nden al. Gönder dedikçe bütün harita Görev Matrisi’nde yedeklenir.</div></div>');
 }
 
+async function sendOut() {
+    const rnd = (k, v) => typeof v === 'number' && !Number.isInteger(v) && Math.abs(v) < 200 ? Math.round(v * 1e5) / 1e5 : v;
+    const out = JSON.stringify({ kh: 1, at: Date.now(), geo: S.pins.filter(p => p.lead).map(p => [p.lead, p.lat, p.lng]), full: { areas: S.areas.map(a => { try { return turf.truncate(a, { precision: 5 }); } catch (e) { return a; } }), pins: S.pins.map(p => { const o = Object.assign({}, p); delete o._drag; return o; }) } }, rnd);
+    try { await navigator.clipboard.writeText(out); S.chg = 0; save(); close(); open('<div class="ph"><h3>✓ Kopyalandı</h3><button class="x" data-close>✕</button></div><div class="list" style="gap:8px;font-size:15px"><div>1. Görev Matrisi’ni aç</div><div>2. Müşteri → 🛰️ Uydu haritası</div><div>3. “Haritadan al” kutusuna basılı tut → <b>Yapıştır</b></div></div><div class="muted">Yapıştırınca kendiliğinden alır.</div>'); } catch (e) { open('<div class="ph"><h3>Kopyala</h3><button class="x" data-close>✕</button></div><div class="muted">Otomatik kopyalanamadı. Kutuya basılı tut → Tümünü Seç → Kopyala.</div><textarea class="field" style="min-height:200px">' + esc(out) + '</textarea>'); S.chg = 0; save(); }
+}
+function sendBadge() { const n = S.chg || 0, b = $('send'); if (!b) return; b.style.display = n ? 'block' : 'none'; document.body.classList.toggle('has-send', !!n); b.textContent = '⬆️ ' + n + ' değişiklik aktarılmadı · Aktar'; }
+$('send').onclick = sendOut;
+window.addEventListener('beforeunload', e => { if (S.chg) { e.preventDefault(); e.returnValue = ''; } });
 /* ---------- Alttan açılan kart ---------- */
 function open(html) { $('panel').innerHTML = html; $('sheet').classList.add('on'); $('panel').scrollTop = 0; $('panel').querySelectorAll('[data-close]').forEach(b => b.onclick = close); }
 function close() { if (dropM) { map.removeLayer(dropM); dropM = null; } $('sheet').classList.remove('on'); $('panel').innerHTML = ''; if (selPin) { selPin = null; drawPins(); } }
@@ -433,7 +440,8 @@ function fromHash() {
 }
 window.addEventListener('hashchange', fromHash);
 
-drawAreas(); drawPins(); fromHash();
+drawAreas(); drawPins(); fromHash(); sendBadge();
+if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' değişiklik var · sarı Aktar düğmesine bas'), 900);
 if (!S.cust.length && !S.pins.length) setTimeout(help, 600);
 }
 </script>
