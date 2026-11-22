@@ -97,7 +97,7 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611222103"></script>
+<script src="gshim.js?v=202611222108"></script>
 <script>
 function APP() {
 const KEY = 'kumes-harita-v1';
@@ -430,8 +430,17 @@ function routeStops() {
     .map(p => { const pt = turf.point([p.lng, p.lat]); const off = turf.pointToLineDistance(pt, line, { units: 'kilometers' }); const along = turf.length(turf.lineSlice(line.geometry.coordinates[0], turf.nearestPointOnLine(line, pt).geometry.coordinates, line)); return { p, off, along }; })
     .filter(x => x.off <= RT.w && x.along > 0.05 && x.along < total - 0.05 && kmBetween([x.p.lat, x.p.lng], RT.to) > 0.05).sort((a, b) => a.along - b.along);
 }
+// Google Maps bir bağlantıda en fazla 9 ara durak alıyor: fazlası parça parça (her parça bir öncekinin bittiği yerden başlar)
+function legsHtml(chosen) {
+  const pts = chosen.map(x => [x.p.lat, x.p.lng]).concat([RT.to]), legs = []; let from = RT.from, i = 0;
+  while (i < pts.length) { const part = pts.slice(i, i + 10), dest = part[part.length - 1], wps = part.slice(0, -1); legs.push({ from, dest, wps }); from = dest; i += 10; }
+  const url = l => 'https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=' + l.from[0] + ',' + l.from[1] + '&destination=' + l.dest[0] + ',' + l.dest[1] + (l.wps.length ? '&waypoints=' + encodeURIComponent(l.wps.map(w => w[0] + ',' + w[1]).join('|')) : '');
+  if (legs.length === 1) return '<a class="btn pri full" id="rgo" target="_blank" rel="noopener" href="' + url(legs[0]) + '">🧭 Google Maps’te aç (' + chosen.length + ' durak)</a>';
+  return '<div class="muted">Google Maps tek seferde 9 durak alıyor. Rota ' + legs.length + ' parçaya bölündü: 1. parça bitince 2.’ye bas, kaldığın yerden devam eder.</div>' +
+    legs.map((l, k) => '<a class="btn ' + (k ? '' : 'pri ') + 'full"' + (k ? '' : ' id="rgo"') + ' target="_blank" rel="noopener" href="' + url(l) + '">🧭 ' + (k + 1) + '. parça · ' + (l.wps.length + (k === legs.length - 1 ? 0 : 1)) + ' durak</a>').join('');
+}
 function routeCard(keepView) {
-  const st = routeStops(); if (!RT.sel) RT.sel = new Set(st.slice(0, 9).map(x => x.p.id));
+  const st = routeStops(); if (!RT.sel) RT.sel = new Set(st.map(x => x.p.id));
   routeLayer.clearLayers();
   L.polyline([RT.from, RT.to], { color: '#ffe14d', weight: 3, dashArray: '8 8', interactive: false }).addTo(routeLayer);
   try { L.geoJSON(turf.buffer(turf.lineString([[RT.from[1], RT.from[0]], [RT.to[1], RT.to[0]]]), RT.w, { units: 'kilometers' }), { style: { color: '#ffe14d', weight: 1, fillOpacity: .06 }, interactive: false }).addTo(routeLayer); } catch (e) {}
@@ -443,12 +452,9 @@ function routeCard(keepView) {
     '<div class="chips">' + [1, 2, 3, 5, 10].map(w => '<button class="chip" data-w="' + w + '" aria-pressed="' + (RT.w === w) + '">' + w + ' km</button>').join('') + '</div>' +
     '<div class="chips">' + [['c', '👤 Müşteriler'], ['q', '❓ Bilinmeyenler'], ['all', 'Hepsi']].map(([k, n]) => '<button class="chip" data-o="' + k + '" aria-pressed="' + (RT.only === k) + '">' + n + '</button>').join('') + '</div>' +
     '<div class="list">' + (st.length ? st.map(x => { const c = x.p.lead && custById(x.p.lead); if (x.p._list) return '<button class="item" data-tg="' + x.p.id + '"><b style="font-size:20px">' + (RT.sel.has(x.p.id) ? '☑️' : '⬜') + '</b><div class="g"><b>📍 ' + esc(x.p.name) + '</b><small>' + esc(x.p._list.slice(0, 4).map(z => z.n).join(', ') + (x.p._list.length > 4 ? '…' : '') + ' · yoldan ' + fmtKm(x.off) + ' sapma') + '</small></div><b class="km">' + fmtKm(x.along) + '</b></button>'; return '<button class="item" data-tg="' + x.p.id + '"><b style="font-size:20px">' + (RT.sel.has(x.p.id) ? '☑️' : '⬜') + '</b><div class="g"><b>' + esc(pinLabel(x.p)) + '</b><small>' + esc([c ? [c.k, c.st].filter(Boolean).join(' · ') : yerTxt(x.p), 'yoldan ' + fmtKm(x.off) + ' sapma'].filter(Boolean).join(' · ')) + '</small></div><b class="km">' + fmtKm(x.along) + '</b></button>'; }).join('') : '<div class="muted">Bu genişlikte yol üstünde kümes yok. Genişliği artır.</div>') + '</div>' +
-    (chosen.length > 9 ? '<div class="muted">⚠️ Google Maps en fazla 9 durak alır, ilk 9’u gönderilir.</div>' : '') +
-    '<a class="btn pri full" id="rgo" target="_blank" rel="noopener">🧭 Google Maps’te aç (' + Math.min(chosen.length, 9) + ' durak)</a>' +
+    legsHtml(chosen) +
     '<a class="btn full" href="https://maps.apple.com/?dirflg=d&daddr=' + RT.to[0] + ',' + RT.to[1] + '" target="_blank" rel="noopener">Apple Haritalar (duraksız, sadece hedef)</a>' +
     '<button class="btn full" id="rclr">Rotayı kaldır</button>');
-  const wp = chosen.slice(0, 9).map(x => x.p.lat + ',' + x.p.lng).join('|');
-  $('rgo').href = 'https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=' + RT.from[0] + ',' + RT.from[1] + '&destination=' + RT.to[0] + ',' + RT.to[1] + (wp ? '&waypoints=' + encodeURIComponent(wp) : '');
   document.querySelectorAll('#panel [data-w]').forEach(b => b.onclick = () => { RT.w = +b.dataset.w; RT.sel = null; routeCard(); });
   document.querySelectorAll('#panel [data-o]').forEach(b => b.onclick = () => { RT.only = b.dataset.o; RT.sel = null; routeCard(); });
   document.querySelectorAll('#panel [data-tg]').forEach(b => b.onclick = () => { const id = b.dataset.tg; RT.sel.has(id) ? RT.sel.delete(id) : RT.sel.add(id); const t = $('panel').scrollTop; routeCard(); $('panel').scrollTop = t; });
@@ -688,7 +694,7 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeout(() => { if (!S.cust.length && !S.pins.length && !$('sheet').classList.contains('on')) help(); }, 600);
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
-const APP_VER = '202611222103';
+const APP_VER = '202611222108';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
