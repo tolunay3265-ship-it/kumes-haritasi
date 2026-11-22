@@ -90,7 +90,7 @@ function installShim() {
       const geo = this.feature.geometry || this.feature, polys = geo.type === 'Polygon' ? [geo.coordinates] : geo.type === 'MultiPolygon' ? geo.coordinates : [];
       const st = this.st;
       this.ps = polys.map(rings => { const p = new GM.Polygon({ map: g, paths: rings.map(r => r.map(c => ({ lat: c[1], lng: c[0] }))), strokeColor: st.color, strokeWeight: st.weight == null ? 2 : st.weight, fillColor: st.fillColor || st.color, fillOpacity: st.fillOpacity == null ? .2 : st.fillOpacity, clickable: this.inter, zIndex: 10 });
-        if (this.inter) p.addListener('click', e => this.fire('click', { latlng: toLL(e.latLng) })); return p; });
+        if (this.inter) { p.addListener('click', e => this.fire('click', { latlng: toLL(e.latLng) })); p.addListener('dblclick', e => { if (e.stop) e.stop(); this.fire('dblclick', { latlng: toLL(e.latLng) }); }); } return p; });
     }
     _detach() { (this.ps || []).forEach(p => p.setMap(null)); this.ps = null; }
   }

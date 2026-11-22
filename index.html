@@ -97,7 +97,7 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611221800"></script>
+<script src="gshim.js?v=202611221812"></script>
 <script>
 function APP() {
 const KEY = 'kumes-harita-v1';
@@ -140,7 +140,11 @@ let meMarker = null, selPin = null;
 function drawAreas() {
   areaLayer.clearLayers();
   S.areas.forEach((f, i) => { areaLayer.addData(f); });
-  areaLayer.eachLayer(l => l.on('click', e => { if (mode !== 'pan') return; L.DomEvent.stopPropagation(e); areaCard(l.feature); }));
+  // Yeşil alanın içine tıklama: Gez'de alan kartı (içinde 'kümes ekle' var); diğer modlarda haritaya tıklamış gibi; çift tık = kümes ekle
+  areaLayer.eachLayer(l => {
+    l.on('click', e => { if (mode === 'pan') { L.DomEvent.stopPropagation(e); clearTimeout(clickT); clickT = setTimeout(() => { clickT = null; areaCard(l.feature, e.latlng); }, 260); } else if (window.GOOG && mode !== 'draw') { clearTimeout(clickT); clickT = setTimeout(() => { clickT = null; onClick(e); }, 260); } });
+    l.on('dblclick', e => { L.DomEvent.stopPropagation(e); clearTimeout(clickT); clickT = null; newPinAt(e.latlng); });
+  });
 }
 const custById = id => S.cust.find(c => c.i === id);
 const PST = { '': '❓ Bilinmiyor', kapali: '🚫 Kümes kapanmış', degil: '✖ Kümes değil' };
@@ -263,13 +267,15 @@ function addArea(poly) {
   merged.properties = { id: uid(), t: Date.now(), note: [...new Set(notes)].join(' · ') };
   S.areas = rest.concat([merged]);
 }
-function areaCard(f) {
+function areaCard(f, ll) {
   const ha = Math.round(turf.area(f) / 1000) / 10, d = new Date((f.properties && f.properties.t) || Date.now());
   const inside = S.pins.filter(p => { try { return turf.booleanPointInPolygon([p.lng, p.lat], f); } catch (e) { return false; } });
   open('<div class="ph"><h3>Taranan alan</h3><button class="x" data-close>✕</button></div>' +
     '<div class="kv"><span>Büyüklük</span><b>' + ha.toString().replace('.', ',') + ' hektar</b></div><div class="kv"><span>Tarih</span><b>' + d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }) + '</b></div><div class="kv"><span>İçindeki kümes</span><b>' + inside.length + '</b></div>' +
     '<div class="lbl">Not</div><input class="field" id="an" value="' + esc(f.properties && f.properties.note) + '" placeholder="Örn: 1. hafta, Seydiköy güneyi">' +
+    (ll ? '<button class="btn full" id="apin">🏠 Tıkladığın yere kümes ekle</button>' : '') +
     '<div class="row"><button class="btn dan" id="adel">Alanı sil</button><button class="btn pri" id="aok">Kaydet</button></div>');
+  if (ll) $('apin').onclick = () => newPinAt(ll);
   $('aok').onclick = () => { S.chg = (S.chg || 0) + 1; f.properties = Object.assign({}, f.properties, { note: $('an').value.trim() }); save(); close(); toast('Kaydedildi'); };
   $('adel').onclick = () => { snapshot(); markDel(f.properties && f.properties.id); S.areas = S.areas.filter(a => a !== f && !(a.properties && f.properties && a.properties.id && a.properties.id === f.properties.id)); save(); drawAreas(); close(); toast('Alan silindi · Geri al ile geri getirebilirsin'); };
 }
@@ -648,7 +654,7 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length) setTimeout(help, 600);
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
-const APP_VER = '202611221800';
+const APP_VER = '202611221812';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) location.replace(location.pathname + '?v=' + t + location.hash); }).catch(() => {}); }
 checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
