@@ -101,8 +101,9 @@ const norm = s => String(s || '').toLocaleLowerCase('tr').normalize('NFD').repla
 
 /* ---------- Veri ---------- */
 // S.areas: taranan alanlar (GeoJSON Polygon/MultiPolygon feature listesi) · S.pins: kümes işaretleri · S.cust: Görev Matrisi'nden gelen müşteri listesi
-let S = { v: 1, areas: [], pins: [], cust: [], view: null, layer: 'sat', upd: 0 };
+let S = { v: 1, areas: [], pins: [], cust: [], view: null, layer: 'satlbl', upd: 0 };
 try { const r = JSON.parse(localStorage.getItem(KEY) || 'null'); if (r && r.v) S = Object.assign(S, r); } catch (e) {}
+if (!S.lv2) { S.layer = 'satlbl'; S.lv2 = 1; }
 const hist = [];
 function save(snap) { S.upd = Date.now(); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Kaydedilemedi: telefonda yer yok'); } }
 function snapshot() { hist.push(JSON.stringify({ areas: S.areas, pins: S.pins })); if (hist.length > 40) hist.shift(); $('undo').disabled = false; }
@@ -116,7 +117,7 @@ const roads = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/
 const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, maxNativeZoom: 19, attribution: '© OpenStreetMap' });
 function applyLayer() {
   [sat, labels, roads, street].forEach(l => map.hasLayer(l) && map.removeLayer(l));
-  if (S.layer === 'street') street.addTo(map); else { sat.addTo(map); if (S.layer === 'satlbl') { labels.addTo(map); roads.addTo(map); } }
+  if (S.layer === 'street') street.addTo(map); else { sat.addTo(map); if (S.layer === 'satlbl') { roads.addTo(map); labels.addTo(map); } }
 }
 applyLayer();
 map.on('moveend', () => { const c = map.getCenter(); S.view = { c: [+c.lat.toFixed(5), +c.lng.toFixed(5)], z: map.getZoom() }; save(); });
@@ -199,6 +200,7 @@ function areaCard(f) {
 map.on('click', e => {
   if (mode === 'pin') { pinForm({ lat: +e.latlng.lat.toFixed(6), lng: +e.latlng.lng.toFixed(6), lead: null, name: '', note: '', cnt: '' }, true); }
   else if (mode === 'circle') setCircle([e.latlng.lat, e.latlng.lng]);
+  else if (mode === 'pan' && $('res').style.display !== 'block') dropCard(e.latlng);
 });
 function custSearch(qs, limit) { const q = norm(qs).trim(); if (!q) return []; return S.cust.filter(c => norm(c.n + ' ' + (c.k || '') + ' ' + (c.c || '')).includes(q)).slice(0, limit || 30); }
 function pinForm(p, isNew) {
@@ -244,7 +246,7 @@ function pinCard(p) {
     (p.cnt ? '<div class="kv"><span>Kümes sayısı</span><b>' + esc(p.cnt) + '</b></div>' : '') +
     (p.note ? '<div class="field" style="white-space:pre-wrap">' + esc(p.note) + '</div>' : '') +
     (near.length ? '<div class="lbl">5 km içinde</div><div class="list">' + near.map(n => '<button class="item" data-go="' + n.p.id + '"><div class="g"><b>' + esc(pinLabel(n.p)) + '</b></div><b class="km">' + fmtKm(n.d) + '</b></button>').join('') + '</div>' : '') +
-    '<div class="row"><a class="btn" href="https://maps.apple.com/?dirflg=d&daddr=' + p.lat + ',' + p.lng + '" target="_blank" rel="noopener">🧭 Yol tarifi</a><button class="btn" id="pcir">⭕ Çevresi</button></div>' +
+    navBtns(p.lat, p.lng) + '<button class="btn full" id="pcir">⭕ Çevresi</button>' +
     '<div class="row"><button class="btn" id="pmv">✋ Taşı</button><button class="btn pri" id="ped">✏️ Düzenle</button></div>');
   $('ped').onclick = () => pinForm(p, false);
   $('pmv').onclick = () => { p._drag = true; drawPins(); close(); toast('İşareti tutup yeni yerine sürükle'); };
@@ -252,6 +254,21 @@ function pinCard(p) {
   document.querySelectorAll('#panel [data-go]').forEach(b => b.onclick = () => { const z = S.pins.find(x => x.id === b.dataset.go); if (z) { map.setView([z.lat, z.lng], Math.max(map.getZoom(), 16)); pinCard(z); } });
 }
 
+function navBtns(lat, lng) { return '<div class="lbl">Yol tarifi</div><div class="row"><a class="btn pri" href="https://maps.apple.com/?dirflg=d&daddr=' + lat + ',' + lng + '" target="_blank" rel="noopener">🧭 Apple Haritalar</a><a class="btn pri" href="https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=' + lat + ',' + lng + '" target="_blank" rel="noopener">🧭 Google Maps</a></div>'; }
+/* Gez modunda boş bir yere dokununca: o noktaya iğne, yol tarifi, kümes ekle */
+let dropM = null;
+function dropCard(ll) {
+  const lat = +ll.lat.toFixed(6), lng = +ll.lng.toFixed(6);
+  if (dropM) map.removeLayer(dropM);
+  dropM = L.marker([lat, lng], { icon: L.divIcon({ className: '', iconSize: [0, 0], html: '<div class="pin"><i style="background:#ef4444"></i></div>' }), interactive: false }).addTo(map);
+  let km = '';
+  if (meMarker) km = '<div class="kv"><span>Bulunduğun yere</span><b>' + fmtKm(kmBetween([meMarker.getLatLng().lat, meMarker.getLatLng().lng], [lat, lng])) + ' (kuş uçuşu)</b></div>';
+  open('<div class="ph"><h3>📍 Seçilen yer</h3><button class="x" data-close>✕</button></div><div class="muted" id="dname">Yer adı aranıyor…</div>' + km + navBtns(lat, lng) +
+    '<div class="row"><button class="btn" id="dpin">🏠 Buraya kümes ekle</button><button class="btn" id="dcir">⭕ Çevresi</button></div>');
+  $('dpin').onclick = () => pinForm({ lat, lng, lead: null, name: '', note: '', cnt: '' }, true);
+  $('dcir').onclick = () => { close(); setMode('circle'); setCircle([lat, lng]); };
+  fetch('https://nominatim.openstreetmap.org/reverse?format=json&zoom=14&accept-language=tr&lat=' + lat + '&lon=' + lng).then(r => r.json()).then(x => { const a = x.address || {}, el = $('dname'); if (el) el.textContent = [a.village || a.hamlet || a.neighbourhood || a.suburb || a.quarter, a.town || a.county || a.city_district, a.province || a.state].filter(Boolean).join(' / ') || 'Adı bulunamadı'; }).catch(() => { const el = $('dname'); if (el) el.textContent = lat + ', ' + lng; });
+}
 /* ---------- Daire ve km ---------- */
 const kmBetween = (a, b) => turf.distance([a[1], a[0]], [b[1], b[0]], { units: 'kilometers' });
 function nearby(center, r, except) { return S.pins.filter(p => p !== except).map(p => ({ p, d: kmBetween(center, [p.lat, p.lng]) })).filter(x => x.d <= r).sort((a, b) => a.d - b.d); }
@@ -369,7 +386,7 @@ function pasteIn() {
 }
 function help() {
   open('<div class="ph"><h3>Nasıl kullanılır</h3><button class="x" data-close>✕</button></div><div class="list" style="gap:10px;font-size:15px">' +
-    '<div>✋ <b>Gez</b>: haritayı kaydır, iki parmakla yakınlaştır.</div>' +
+    '<div>✋ <b>Gez</b>: haritayı kaydır, iki parmakla yakınlaştır. Herhangi bir yere dokunursan köy adı ve yol tarifi çıkar.</div>' +
     '<div>✏️ <b>Tara</b>: baktığın yerin etrafını parmağınla çiz, içi yeşil olur. Eski bir alana değecek şekilde çizersen ona eklenir. Yeşil alana dokunursan (Gez’de) not yazar ya da silersin.</div>' +
     '<div>🏠 <b>Kümes</b>: kümesin çatısına dokun, müşteriyi seç. Bilmiyorsan seçmeden kaydet, ❓ olur. İşarete dokununca kartı açılır: telefon, düzenle, taşı, yol tarifi.</div>' +
     '<div>⭕ <b>Daire</b>: bir kümese ya da herhangi bir yere dokun; 1–30 km arası daire çizilir, içindeki kümesler yakından uzağa km’siyle listelenir.</div>' +
@@ -380,7 +397,7 @@ function help() {
 
 /* ---------- Alttan açılan kart ---------- */
 function open(html) { $('panel').innerHTML = html; $('sheet').classList.add('on'); $('panel').scrollTop = 0; $('panel').querySelectorAll('[data-close]').forEach(b => b.onclick = close); }
-function close() { $('sheet').classList.remove('on'); $('panel').innerHTML = ''; if (selPin) { selPin = null; drawPins(); } }
+function close() { if (dropM) { map.removeLayer(dropM); dropM = null; } $('sheet').classList.remove('on'); $('panel').innerHTML = ''; if (selPin) { selPin = null; drawPins(); } }
 $('sbg').onclick = close;
 let tt = null; function toast(m) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(tt); tt = setTimeout(() => t.style.display = 'none', 2600); }
 
