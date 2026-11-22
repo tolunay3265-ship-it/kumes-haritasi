@@ -525,12 +525,19 @@ function pasteIn() {
     let o; try { o = JSON.parse($('pc-t').value.trim()); } catch (e) { return toast('Bu yazı anlaşılamadı'); }
     if (!o || !Array.isArray(o.cust)) return toast('Müşteri listesi bulunamadı');
     S.cust = o.cust; let added = 0, restored = false;
-    if (o.full && (o.full.pins || o.full.areas) && !S.pins.length && !S.areas.length) { S.pins = o.full.pins || []; S.areas = o.full.areas || []; restored = true; }
+    // Başka cihazda yapılanları birleştir: eksik işaretler eklenir, aynı işaretin yenisi kalır; yeşil alanlar üst üste birleşir
+    if (o.full) {
+      const ownP = {}; S.pins.forEach(p => ownP[p.id] = p);
+      (o.full.pins || []).forEach(p => { const m = ownP[p.id]; if (!m) { S.pins.push(p); restored = true; } else if ((p.upd || p.t || 0) > (m.upd || m.t || 0)) { Object.assign(m, p); restored = true; } });
+      const ownA = new Set(S.areas.map(a => a.properties && a.properties.id).filter(Boolean)), key = a => JSON.stringify(a.geometry);
+      const ownG = new Set(S.areas.map(key));
+      (o.full.areas || []).forEach(a => { if ((a.properties && ownA.has(a.properties.id)) || ownG.has(key(a))) return; try { const t = a.properties && a.properties.t, n = a.properties && a.properties.note; addArea({ geometry: a.geometry }); const last = S.areas[S.areas.length - 1]; if (t) last.properties.t = Math.min(last.properties.t, t); if (n && !last.properties.note) last.properties.note = n; restored = true; } catch (e) {} });
+    }
     let linked = 0;
     S.cust.forEach(c => { if (!c.mp) return; const pin = S.pins.find(p => p.id === c.mp); if (pin && !pin.lead && !/^❓ /.test(c.n)) { pin.lead = c.i; linked++; } });
     S.cust.forEach(c => { if (c.g && !c.mp && !S.pins.some(p => p.lead === c.i)) { S.pins.push({ id: uid(), lat: c.g[0], lng: c.g[1], lead: c.i, name: '', note: '', cnt: '', t: Date.now() }); added++; } });
     save(); drawPins(); drawAreas(); close();
-    toast(S.cust.length + ' müşteri alındı' + (added ? ' · ' + added + ' konum haritaya eklendi' : '') + (linked ? ' · ' + linked + ' bilinmeyen kümesin sahibi işlendi' : '') + (restored ? ' · yedek geri yüklendi' : ''));
+    toast(S.cust.length + ' müşteri alındı' + (added ? ' · ' + added + ' konum haritaya eklendi' : '') + (linked ? ' · ' + linked + ' bilinmeyen kümesin sahibi işlendi' : '') + (restored ? ' · diğer cihazdaki çizim ve işaretler eklendi' : ''));
   };
 }
 function help() {
