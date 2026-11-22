@@ -522,7 +522,7 @@ function fromHash() {
 }
 window.addEventListener('hashchange', fromHash);
 
-if (!S.fh && S.areas.length) { try { const old = S.areas, before = JSON.stringify(old.map(x => x.geometry)); S.areas = []; old.forEach(x => addArea(x)); if (JSON.stringify(S.areas.map(x => x.geometry)) !== before) S.chg = (S.chg || 0) + 1; } catch (e) {} S.fh = 1; save(); }
+if (!S.fh && S.areas.length) { const old0 = S.areas; try { const old = S.areas, before = JSON.stringify(old.map(x => x.geometry)); S.areas = []; old.forEach(x => addArea(x)); if (JSON.stringify(S.areas.map(x => x.geometry)) !== before) S.chg = (S.chg || 0) + 1; } catch (e) { S.areas = old0; } S.fh = 1; save(); }
 drawAreas(); drawPins(); fromHash(); sendBadge();
 setTimeout(fixOldKoy, 2500);
 if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' değişiklik var · sarı Aktar düğmesine bas'), 900);
