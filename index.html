@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Kümes Haritası</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Kümes Haritası">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f1a14">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-180.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* Kümes Haritası — tam ekran uydu haritası; üstte arama, altta araç çubuğu; alttan açılan kartlar */
+:root{--bg:#0f1a14;--panel:#16231c;--panel2:#1f3027;--ink:#eef4ef;--muted:#9db1a4;--green:#33c46b;--scan:#2fd36b;--q:#ff9f1c;--cust:#3b82f6;--sale:#22c55e;--bad:#ef4444;--line:#2b3d33;--r:14px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overflow:hidden;overscroll-behavior:none}
+#map{position:fixed;inset:0;background:#111}
+button,input,textarea,select{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:pointer}
+.top{position:fixed;left:0;right:0;top:0;z-index:1000;padding:calc(env(safe-area-inset-top,0px) + 8px) 10px 0;display:flex;gap:8px;pointer-events:none}
+.top>*{pointer-events:auto}
+.search{flex:1;display:flex;align-items:center;gap:8px;background:rgba(15,26,20,.88);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-radius:14px;padding:0 12px;height:46px;border:1px solid var(--line)}
+.search input{flex:1;min-width:0;background:none;border:0;outline:0;font-size:16px}
+.rbtn{width:46px;height:46px;border-radius:14px;background:rgba(15,26,20,.88);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid var(--line);display:grid;place-items:center;font-size:20px}
+.results{position:fixed;left:10px;right:10px;top:calc(env(safe-area-inset-top,0px) + 60px);z-index:1001;background:var(--panel);border:1px solid var(--line);border-radius:14px;max-height:55vh;overflow:auto;display:none}
+.results button{display:block;width:100%;text-align:left;padding:11px 14px;border-bottom:1px solid var(--line)}
+.results button small{display:block;color:var(--muted);font-size:13px}
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:1000;padding:8px 8px calc(env(safe-area-inset-bottom,0px) + 8px);display:flex;gap:6px;justify-content:center;pointer-events:none}
+.bar>div{display:flex;gap:4px;background:rgba(15,26,20,.92);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:18px;padding:5px;pointer-events:auto;max-width:100%;overflow-x:auto}
+.tb{flex:none;min-width:58px;height:56px;border-radius:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11.5px;font-weight:600;color:var(--muted);padding:0 6px}
+.tb b{font-size:21px;line-height:1}
+.tb[aria-pressed=true]{background:var(--green);color:#06210f}
+.tb:disabled{opacity:.35}
+.hint{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:999;background:rgba(15,26,20,.9);border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:13.5px;max-width:92vw;text-align:center;display:none}
+.toast{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 64px);z-index:3000;background:#fff;color:#111;border-radius:12px;padding:10px 14px;font-size:14px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.4);display:none;max-width:92vw;text-align:center}
+.sheet{position:fixed;inset:0;z-index:2000;display:none;align-items:flex-end;justify-content:center}
+.sheet.on{display:flex}
+.sheet .bg{position:absolute;inset:0;background:rgba(0,0,0,.45)}
+.panel{position:relative;width:100%;max-width:560px;max-height:86vh;overflow:auto;background:var(--panel);border-radius:20px 20px 0 0;padding:16px 16px calc(env(safe-area-inset-bottom,0px) + 18px);display:flex;flex-direction:column;gap:12px;border-top:1px solid var(--line)}
+.ph{display:flex;align-items:center;gap:8px}.ph h3{margin:0;flex:1;font-size:19px}
+.x{width:36px;height:36px;border-radius:10px;background:var(--panel2);font-size:18px}
+.btn{height:46px;padding:0 14px;border-radius:12px;background:var(--panel2);font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:6px;text-decoration:none;color:var(--ink)}
+.btn.pri{background:var(--green);color:#06210f}.btn.dan{color:#ff8a8a}.btn.full{width:100%}
+.row{display:flex;gap:8px;flex-wrap:wrap}.row .btn{flex:1 1 auto}
+.field{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:11px 12px;font-size:16px;outline:0}
+textarea.field{min-height:84px;resize:vertical}
+.lbl{font-size:12.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:-6px}
+.muted{color:var(--muted);font-size:13.5px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{height:38px;padding:0 12px;border-radius:10px;background:var(--panel2);font-weight:600;font-size:14px}
+.chip[aria-pressed=true]{background:var(--green);color:#06210f}
+.list{display:flex;flex-direction:column;gap:6px}
+.item{display:flex;align-items:center;gap:10px;background:var(--panel2);border-radius:12px;padding:10px 12px;text-align:left;width:100%}
+.item .g{flex:1;min-width:0}.item small{display:block;color:var(--muted);font-size:12.5px}
+.item b.km{white-space:nowrap;font-variant-numeric:tabular-nums}
+.kv{display:flex;justify-content:space-between;gap:10px;font-size:14.5px}.kv span{color:var(--muted)}
+/* harita işaretleri */
+.pin{display:flex;flex-direction:column;align-items:center;transform:translateY(-6px)}
+.pin i{width:22px;height:22px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.6);display:grid;place-items:center;font-style:normal;font-weight:900;font-size:13px;color:#fff}
+.pin span{margin-top:2px;background:rgba(0,0,0,.72);color:#fff;font-size:11.5px;font-weight:700;padding:1px 6px;border-radius:6px;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis}
+.pin.q i{background:var(--q);color:#1b1000}.pin.c i{background:var(--cust)}.pin.s i{background:var(--sale)}.pin.sel i{outline:3px solid #ffe14d}
+.leaflet-control-attribution{font-size:9px;background:rgba(0,0,0,.45)!important;color:#ccc}.leaflet-control-attribution a{color:#ddd}
+.leaflet-control-zoom{display:none}
+.drawing #map{cursor:crosshair}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="top">
+  <label class="search"><span>🔎</span><input id="q" type="search" placeholder="Müşteri ya da köy ara" autocomplete="off"></label>
+  <button class="rbtn" id="loc" aria-label="Konumum">📍</button>
+  <button class="rbtn" id="menu" aria-label="Menü">☰</button>
+</div>
+<div class="results" id="res"></div>
+<div class="hint" id="hint"></div>
+<div class="toast" id="toast"></div>
+<div class="bar"><div>
+  <button class="tb" data-mode="pan" aria-pressed="true"><b>✋</b>Gez</button>
+  <button class="tb" data-mode="draw"><b>✏️</b>Tara</button>
+  <button class="tb" data-mode="pin"><b>🏠</b>Kümes</button>
+  <button class="tb" data-mode="circle"><b>⭕</b>Daire</button>
+  <button class="tb" id="undo"><b>↶</b>Geri al</button>
+  <button class="tb" id="lay"><b>🗺️</b>Katman</button>
+</div></div>
+<div class="sheet" id="sheet"><div class="bg" id="sbg"></div><div class="panel" id="panel"></div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
+<script>
+{
+const KEY = 'kumes-harita-v1';
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const fmtKm = k => k < 1 ? Math.round(k * 1000) + ' m' : (Math.round(k * 10) / 10).toString().replace('.', ',') + ' km';
+const norm = s => String(s || '').toLocaleLowerCase('tr').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ı/g, 'i');
+
+/* ---------- Veri ---------- */
+// S.areas: taranan alanlar (GeoJSON Polygon/MultiPolygon feature listesi) · S.pins: kümes işaretleri · S.cust: Görev Matrisi'nden gelen müşteri listesi
+let S = { v: 1, areas: [], pins: [], cust: [], view: null, layer: 'sat', upd: 0 };
+try { const r = JSON.parse(localStorage.getItem(KEY) || 'null'); if (r && r.v) S = Object.assign(S, r); } catch (e) {}
+const hist = [];
+function save(snap) { S.upd = Date.now(); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Kaydedilemedi: telefonda yer yok'); } }
+function snapshot() { hist.push(JSON.stringify({ areas: S.areas, pins: S.pins })); if (hist.length > 40) hist.shift(); $('undo').disabled = false; }
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+
+/* ---------- Harita ---------- */
+const map = L.map('map', { zoomControl: false, attributionControl: true, tap: false, maxZoom: 20, worldCopyJump: true }).setView(S.view ? S.view.c : [38.48, 28.14], S.view ? S.view.z : 11);
+const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 19, attribution: 'Uydu: Esri, Maxar, Earthstar' });
+const labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 19 });
+const roads = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 19, opacity: .8 });
+const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, maxNativeZoom: 19, attribution: '© OpenStreetMap' });
+function applyLayer() {
+  [sat, labels, roads, street].forEach(l => map.hasLayer(l) && map.removeLayer(l));
+  if (S.layer === 'street') street.addTo(map); else { sat.addTo(map); if (S.layer === 'satlbl') { labels.addTo(map); roads.addTo(map); } }
+}
+applyLayer();
+map.on('moveend', () => { const c = map.getCenter(); S.view = { c: [+c.lat.toFixed(5), +c.lng.toFixed(5)], z: map.getZoom() }; save(); });
+
+const areaLayer = L.geoJSON(null, { style: { color: '#2fd36b', weight: 2, fillColor: '#2fd36b', fillOpacity: .32 } }).addTo(map);
+const pinLayer = L.layerGroup().addTo(map);
+const circleLayer = L.layerGroup().addTo(map);
+let meMarker = null, selPin = null;
+
+function drawAreas() {
+  areaLayer.clearLayers();
+  S.areas.forEach((f, i) => { areaLayer.addData(f); });
+  areaLayer.eachLayer(l => l.on('click', e => { if (mode !== 'pan') return; L.DomEvent.stopPropagation(e); areaCard(l.feature); }));
+}
+const custById = id => S.cust.find(c => c.i === id);
+function pinLabel(p) { const c = p.lead && custById(p.lead); return c ? c.n : (p.name || 'Bilinmeyen kümes'); }
+function pinCls(p) { const c = p.lead && custById(p.lead); return !p.lead ? 'q' : c && c.s === 'sale' ? 's' : 'c'; }
+function drawPins() {
+  pinLayer.clearLayers();
+  S.pins.forEach(p => {
+    const cls = pinCls(p), lbl = pinLabel(p);
+    const icon = L.divIcon({ className: '', iconSize: [0, 0], html: '<div class="pin ' + cls + (selPin === p.id ? ' sel' : '') + '"><i>' + (cls === 'q' ? '?' : '') + '</i>' + (map.getZoom() >= 14 || selPin === p.id ? '<span>' + esc(lbl) + '</span>' : '') + '</div>' });
+    const m = L.marker([p.lat, p.lng], { icon, draggable: !!p._drag, keyboard: false }).addTo(pinLayer);
+    m.on('click', e => { L.DomEvent.stopPropagation(e); if (mode === 'circle') { setCircle([p.lat, p.lng], p); return; } pinCard(p); });
+    m.on('dragend', () => { const ll = m.getLatLng(); snapshot(); p.lat = +ll.lat.toFixed(6); p.lng = +ll.lng.toFixed(6); delete p._drag; save(); drawPins(); toast('Yeni yeri kaydedildi'); });
+  });
+}
+map.on('zoomend', drawPins);
+
+/* ---------- Mod ---------- */
+let mode = 'pan';
+const HINTS = { draw: 'Parmağınla taradığın yerin etrafını çiz. Bitince parmağını kaldır, içi yeşile boyanır. Üst üste gelen çizimler birleşir.', pin: 'Kümesin üstüne dokun.', circle: 'Merkeze dokun ya da bir kümese dokun.' };
+function setMode(m) {
+  mode = m; document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m));
+  document.body.classList.toggle('drawing', m === 'draw');
+  if (m === 'draw') { map.dragging.disable(); map.touchZoom.disable(); map.doubleClickZoom.disable(); } else { map.dragging.enable(); map.touchZoom.enable(); map.doubleClickZoom.enable(); }
+  const h = $('hint'); h.textContent = HINTS[m] || ''; h.style.display = HINTS[m] ? 'block' : 'none';
+}
+document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode === mode && mode !== 'pan' ? 'pan' : b.dataset.mode));
+
+/* ---------- Kalemle tarama ---------- */
+let path = null, tmp = null;
+const mapEl = $('map');
+function ptLL(ev) { const r = mapEl.getBoundingClientRect(); return map.containerPointToLatLng([ev.clientX - r.left, ev.clientY - r.top]); }
+mapEl.addEventListener('pointerdown', ev => {
+  if (mode !== 'draw' || !ev.isPrimary) return;
+  ev.preventDefault(); path = [ptLL(ev)]; tmp = L.polyline(path, { color: '#2fd36b', weight: 4, dashArray: '6 6' }).addTo(map);
+  try { mapEl.setPointerCapture(ev.pointerId); } catch (e) {}
+}, { passive: false });
+mapEl.addEventListener('pointermove', ev => { if (!path) return; ev.preventDefault(); const ll = ptLL(ev); const last = path[path.length - 1]; if (map.latLngToContainerPoint(last).distanceTo(map.latLngToContainerPoint(ll)) < 4) return; path.push(ll); tmp.setLatLngs(path); }, { passive: false });
+const endDraw = ev => {
+  if (!path) return; const pts = path; path = null; map.removeLayer(tmp); tmp = null;
+  if (pts.length < 6) return;
+  const ring = pts.map(p => [p.lng, p.lat]); ring.push(ring[0]);
+  let poly; try { poly = turf.polygon([ring]); poly = turf.simplify(poly, { tolerance: 0.00002, highQuality: false }); const k = turf.unkinkPolygon(poly); poly = k.features.length > 1 ? k.features.reduce((a, b) => { try { return turf.union(a, b) || a; } catch (e) { return a; } }) : k.features[0]; } catch (e) { return; }
+  if (!poly) return;
+  snapshot(); addArea(poly); save(); drawAreas();
+  const ha = Math.round(turf.area(poly) / 1000) / 10; toast('Tarandı · ' + ha.toString().replace('.', ',') + ' hektar');
+};
+mapEl.addEventListener('pointerup', endDraw); mapEl.addEventListener('pointercancel', endDraw);
+function addArea(poly) {
+  // Yeni alan, değdiği eski alanlarla birleşir (dairenin ucundan çekilen çizgi ilk daireye eklenir)
+  let merged = { type: 'Feature', properties: {}, geometry: poly.geometry }; const keep = []; const notes = [];
+  S.areas.forEach(a => { let hit = false; try { hit = turf.booleanIntersects(a, merged); } catch (e) {} if (hit) { try { const u = turf.union(a, merged); if (u) { merged = u; if (a.properties && a.properties.note) notes.push(a.properties.note); return; } } catch (e) {} } keep.push(a); });
+  merged.properties = { id: uid(), t: Date.now(), note: notes.join(' · ') };
+  S.areas = keep.concat([merged]);
+}
+function areaCard(f) {
+  const ha = Math.round(turf.area(f) / 1000) / 10, d = new Date((f.properties && f.properties.t) || Date.now());
+  const inside = S.pins.filter(p => { try { return turf.booleanPointInPolygon([p.lng, p.lat], f); } catch (e) { return false; } });
+  open('<div class="ph"><h3>Taranan alan</h3><button class="x" data-close>✕</button></div>' +
+    '<div class="kv"><span>Büyüklük</span><b>' + ha.toString().replace('.', ',') + ' hektar</b></div><div class="kv"><span>Tarih</span><b>' + d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }) + '</b></div><div class="kv"><span>İçindeki kümes</span><b>' + inside.length + '</b></div>' +
+    '<div class="lbl">Not</div><input class="field" id="an" value="' + esc(f.properties && f.properties.note) + '" placeholder="Örn: 1. hafta, Seydiköy güneyi">' +
+    '<div class="row"><button class="btn dan" id="adel">Alanı sil</button><button class="btn pri" id="aok">Kaydet</button></div>');
+  $('aok').onclick = () => { f.properties = Object.assign({}, f.properties, { note: $('an').value.trim() }); save(); close(); toast('Kaydedildi'); };
+  $('adel').onclick = () => { snapshot(); S.areas = S.areas.filter(a => a !== f && !(a.properties && f.properties && a.properties.id && a.properties.id === f.properties.id)); save(); drawAreas(); close(); toast('Alan silindi · Geri al ile geri getirebilirsin'); };
+}
+
+/* ---------- Kümes işaretleri ---------- */
+map.on('click', e => {
+  if (mode === 'pin') { pinForm({ lat: +e.latlng.lat.toFixed(6), lng: +e.latlng.lng.toFixed(6), lead: null, name: '', note: '', cnt: '' }, true); }
+  else if (mode === 'circle') setCircle([e.latlng.lat, e.latlng.lng]);
+});
+function custSearch(qs, limit) { const q = norm(qs).trim(); if (!q) return []; return S.cust.filter(c => norm(c.n + ' ' + (c.k || '') + ' ' + (c.c || '')).includes(q)).slice(0, limit || 30); }
+function pinForm(p, isNew) {
+  let lead = p.lead;
+  const draw = () => {
+    const c = lead && custById(lead);
+    open('<div class="ph"><h3>' + (isNew ? 'Kümes ekle' : 'Kümesi düzenle') + '</h3><button class="x" data-close>✕</button></div>' +
+      '<div class="lbl">Kimin kümesi</div>' +
+      (c ? '<div class="item"><div class="g"><b>' + esc(c.n) + '</b><small>' + esc([c.k, c.c].filter(Boolean).join(' / ')) + '</small></div><button class="chip" id="unlink">Değiştir</button></div>'
+        : '<input class="field" id="cq" placeholder="Müşteri adı ya da köy yaz…" autocomplete="off"><div class="list" id="cl"></div>' +
+          (S.cust.length ? '' : '<div class="muted">Müşteri listesi henüz yok. Menü → “Görev Matrisi’nden al” ile yükleyebilirsin.</div>') +
+          '<div class="lbl">Bilmiyorsan</div><input class="field" id="pn" value="' + esc(p.name) + '" placeholder="Bilinmeyen kümes (istersen kısa bir ad yaz)">') +
+      '<div class="lbl">Kümes sayısı</div><input class="field" id="pc" inputmode="numeric" value="' + esc(p.cnt) + '" placeholder="Örn: 3">' +
+      '<div class="lbl">Not</div><textarea class="field" id="pt" placeholder="Örn: yol toprak, tır girmez, köpek var">' + esc(p.note) + '</textarea>' +
+      '<div class="row">' + (isNew ? '' : '<button class="btn dan" id="pdel">Sil</button>') + '<button class="btn pri" id="pok">' + (c ? 'Kaydet' : 'Kaydet (' + (lead ? '' : '❓ bilinmeyen') + ')') + '</button></div>');
+    if (c) $('unlink').onclick = () => { lead = null; draw(); };
+    else {
+      const cq = $('cq'), cl = $('cl'); const ren = () => { cl.innerHTML = custSearch(cq.value, 12).map(x => '<button class="item" data-c="' + esc(x.i) + '"><div class="g"><b>' + esc(x.n) + '</b><small>' + esc([x.k, x.c, x.m ? x.m + ' m²' : ''].filter(Boolean).join(' · ')) + '</small></div>' + (S.pins.some(z => z.lead === x.i) ? '<small>📍 zaten var</small>' : '') + '</button>').join(''); cl.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { lead = b.dataset.c; draw(); }); };
+      cq.oninput = ren;
+    }
+    if (!isNew) $('pdel').onclick = () => { snapshot(); S.pins = S.pins.filter(z => z.id !== p.id); save(); drawPins(); close(); toast('Silindi · Geri al ile geri getirebilirsin'); };
+    $('pok').onclick = () => {
+      snapshot();
+      p.lead = lead || null; p.name = p.lead ? '' : (($('pn') && $('pn').value.trim()) || ''); p.cnt = $('pc').value.trim(); p.note = $('pt').value.trim();
+      if (isNew) { p.id = uid(); p.t = Date.now(); S.pins.push(p); }
+      if (p.lead) S.pins.forEach(z => { if (z !== p && z.lead === p.lead) { z.lead = null; z.name = (z.name || '') + ' (eski yer)'; } });
+      p.upd = Date.now(); save(); drawPins(); close(); toast(p.lead ? 'Kaydedildi: ' + pinLabel(p) : 'Bilinmeyen kümes eklendi ❓');
+      if (isNew) setMode('pan');
+    };
+  };
+  draw();
+}
+function pinCard(p) {
+  selPin = p.id; drawPins();
+  const c = p.lead && custById(p.lead), near = nearby([p.lat, p.lng], 5, p).slice(0, 5);
+  open('<div class="ph"><h3>' + esc(pinLabel(p)) + '</h3><button class="x" data-close>✕</button></div>' +
+    (c ? '<div class="muted">' + esc([c.k, c.c].filter(Boolean).join(' / ')) + '</div>' +
+      (c.p ? '<div class="kv"><span>Telefon</span><b><a style="color:inherit" href="tel:' + esc(c.p) + '">' + esc(c.p) + '</a></b></div>' : '') +
+      (c.m ? '<div class="kv"><span>Kümes alanı</span><b>' + Number(c.m).toLocaleString('tr-TR') + ' m²</b></div>' : '') +
+      (c.st ? '<div class="kv"><span>Durum</span><b>' + esc(c.st) + '</b></div>' : '') +
+      (c.l ? '<div class="kv"><span>Son arama</span><b>' + esc(c.l) + '</b></div>' : '')
+      : '<div class="muted">❓ Sahibi bilinmiyor. “Düzenle”den müşteriye bağlayabilirsin.</div>') +
+    (p.cnt ? '<div class="kv"><span>Kümes sayısı</span><b>' + esc(p.cnt) + '</b></div>' : '') +
+    (p.note ? '<div class="field" style="white-space:pre-wrap">' + esc(p.note) + '</div>' : '') +
+    (near.length ? '<div class="lbl">5 km içinde</div><div class="list">' + near.map(n => '<button class="item" data-go="' + n.p.id + '"><div class="g"><b>' + esc(pinLabel(n.p)) + '</b></div><b class="km">' + fmtKm(n.d) + '</b></button>').join('') + '</div>' : '') +
+    '<div class="row"><a class="btn" href="https://maps.apple.com/?dirflg=d&daddr=' + p.lat + ',' + p.lng + '" target="_blank" rel="noopener">🧭 Yol tarifi</a><button class="btn" id="pcir">⭕ Çevresi</button></div>' +
+    '<div class="row"><button class="btn" id="pmv">✋ Taşı</button><button class="btn pri" id="ped">✏️ Düzenle</button></div>');
+  $('ped').onclick = () => pinForm(p, false);
+  $('pmv').onclick = () => { p._drag = true; drawPins(); close(); toast('İşareti tutup yeni yerine sürükle'); };
+  $('pcir').onclick = () => { close(); setMode('circle'); setCircle([p.lat, p.lng], p); };
+  document.querySelectorAll('#panel [data-go]').forEach(b => b.onclick = () => { const z = S.pins.find(x => x.id === b.dataset.go); if (z) { map.setView([z.lat, z.lng], Math.max(map.getZoom(), 16)); pinCard(z); } });
+}
+
+/* ---------- Daire ve km ---------- */
+const kmBetween = (a, b) => turf.distance([a[1], a[0]], [b[1], b[0]], { units: 'kilometers' });
+function nearby(center, r, except) { return S.pins.filter(p => p !== except).map(p => ({ p, d: kmBetween(center, [p.lat, p.lng]) })).filter(x => x.d <= r).sort((a, b) => a.d - b.d); }
+let circ = { c: null, r: 5, from: null };
+function setCircle(c, from) {
+  circ.c = c; circ.from = from || null; circleLayer.clearLayers();
+  L.circle(c, { radius: circ.r * 1000, color: '#ffe14d', weight: 2, fillColor: '#ffe14d', fillOpacity: .08, interactive: false }).addTo(circleLayer);
+  L.circleMarker(c, { radius: 6, color: '#ffe14d', fillColor: '#ffe14d', fillOpacity: 1, interactive: false }).addTo(circleLayer);
+  map.fitBounds(L.latLng(c).toBounds(circ.r * 2100), { animate: true });
+  const list = nearby(c, circ.r, from);
+  open('<div class="ph"><h3>⭕ ' + (from ? esc(pinLabel(from)) + ' çevresi' : 'Daire') + '</h3><button class="x" data-close>✕</button></div>' +
+    '<div class="chips">' + [1, 2, 5, 10, 20, 30].map(r => '<button class="chip" data-r="' + r + '" aria-pressed="' + (r === circ.r) + '">' + r + ' km</button>').join('') + '</div>' +
+    '<div class="muted">' + list.length + ' kümes dairenin içinde · mesafeler kuş uçuşu, yol genelde %30 daha uzun</div>' +
+    '<div class="list">' + (list.length ? list.map(n => { const c2 = n.p.lead && custById(n.p.lead); return '<button class="item" data-go="' + n.p.id + '"><div class="g"><b>' + esc(pinLabel(n.p)) + '</b><small>' + esc(c2 ? [c2.k, c2.m ? c2.m + ' m²' : '', c2.st].filter(Boolean).join(' · ') : '❓ bilinmeyen' + (n.p.note ? ' · ' + n.p.note.slice(0, 40) : '')) + '</small></div><b class="km">' + fmtKm(n.d) + '</b></button>'; }).join('') : '<div class="muted">Bu dairede işaretli kümes yok.</div>') + '</div>' +
+    '<button class="btn full" id="cclr">Daireyi kaldır</button>');
+  document.querySelectorAll('#panel [data-r]').forEach(b => b.onclick = () => { circ.r = +b.dataset.r; setCircle(circ.c, circ.from); });
+  document.querySelectorAll('#panel [data-go]').forEach(b => b.onclick = () => { const z = S.pins.find(x => x.id === b.dataset.go); if (z) { close(); map.setView([z.lat, z.lng], 17); setTimeout(() => pinCard(z), 300); } });
+  $('cclr').onclick = () => { circleLayer.clearLayers(); circ.c = null; close(); setMode('pan'); };
+}
+
+/* ---------- Geri al ---------- */
+$('undo').disabled = true;
+$('undo').onclick = () => { const h = hist.pop(); if (!h) return; const o = JSON.parse(h); S.areas = o.areas; S.pins = o.pins; save(); drawAreas(); drawPins(); $('undo').disabled = !hist.length; toast('Geri alındı'); };
+
+/* ---------- Katman ---------- */
+$('lay').onclick = () => {
+  open('<div class="ph"><h3>Harita görünümü</h3><button class="x" data-close>✕</button></div><div class="list">' +
+    [['sat', 'Uydu', 'Sadece uydu fotoğrafı'], ['satlbl', 'Uydu + yollar ve köy adları', 'Yol ve yer adları üstte'], ['street', 'Sokak haritası', 'Uydusuz, yollar belirgin']].map(([k, n, d]) => '<button class="item" data-l="' + k + '"><div class="g"><b>' + (S.layer === k ? '✓ ' : '') + n + '</b><small>' + d + '</small></div></button>').join('') + '</div>');
+  document.querySelectorAll('#panel [data-l]').forEach(b => b.onclick = () => { S.layer = b.dataset.l; save(); applyLayer(); close(); });
+};
+
+/* ---------- Konumum ---------- */
+$('loc').onclick = () => {
+  if (!navigator.geolocation) return toast('Konum desteklenmiyor');
+  toast('Konum alınıyor…');
+  navigator.geolocation.getCurrentPosition(pos => {
+    const ll = [pos.coords.latitude, pos.coords.longitude];
+    if (meMarker) map.removeLayer(meMarker);
+    meMarker = L.circleMarker(ll, { radius: 9, color: '#fff', weight: 3, fillColor: '#3b82f6', fillOpacity: 1 }).addTo(map);
+    map.setView(ll, Math.max(map.getZoom(), 16)); toast('Buradasın');
+  }, () => toast('Konum izni verilmedi: Ayarlar → Safari → Konum'), { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+};
+
+/* ---------- Arama: müşteri, işaret, köy ---------- */
+let qt = null;
+$('q').oninput = () => { clearTimeout(qt); qt = setTimeout(doSearch, 250); };
+$('q').onfocus = () => { if ($('q').value) doSearch(); };
+async function doSearch() {
+  const v = $('q').value.trim(), box = $('res');
+  if (!v) { box.style.display = 'none'; return; }
+  const cs = custSearch(v, 15), ps = S.pins.filter(p => !p.lead && norm((p.name || '') + ' ' + (p.note || '')).includes(norm(v))).slice(0, 5);
+  let h = cs.map(c => { const pin = S.pins.find(p => p.lead === c.i); return '<button data-cust="' + esc(c.i) + '"><b>' + (pin ? '📍 ' : '') + esc(c.n) + '</b><small>' + esc([c.k, c.c].filter(Boolean).join(' / ')) + (pin ? '' : ' · haritada yok, köyüne gider') + '</small></button>'; }).join('') +
+    ps.map(p => '<button data-pin="' + p.id + '"><b>❓ ' + esc(p.name || 'Bilinmeyen kümes') + '</b><small>' + esc(p.note || '') + '</small></button>').join('');
+  box.innerHTML = h + '<button data-geo="1"><b>🔎 “' + esc(v) + '” yerini ara</b><small>Köy, ilçe ya da adres</small></button>'; box.style.display = 'block';
+  box.querySelectorAll('[data-cust]').forEach(b => b.onclick = () => goCust(b.dataset.cust));
+  box.querySelectorAll('[data-pin]').forEach(b => b.onclick = () => { const p = S.pins.find(z => z.id === b.dataset.pin); hideRes(); map.setView([p.lat, p.lng], 17); pinCard(p); });
+  box.querySelector('[data-geo]').onclick = () => geocode(v);
+}
+function hideRes() { $('res').style.display = 'none'; $('q').blur(); }
+async function geocode(text, after) {
+  try {
+    const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=tr&accept-language=tr&q=' + encodeURIComponent(text));
+    const a = await r.json();
+    if (!a.length) { toast('Bulunamadı'); return null; }
+    if (after) return a[0];
+    $('res').innerHTML = a.map((x, i) => '<button data-i="' + i + '"><b>' + esc(x.display_name.split(',')[0]) + '</b><small>' + esc(x.display_name.split(',').slice(1, 4).join(',')) + '</small></button>').join('');
+    $('res').querySelectorAll('[data-i]').forEach(b => b.onclick = () => { const x = a[+b.dataset.i]; hideRes(); map.setView([+x.lat, +x.lon], 15); });
+  } catch (e) { toast('İnternet yok ya da arama çalışmadı'); }
+  return null;
+}
+async function goCust(id) {
+  hideRes(); const c = custById(id); if (!c) return;
+  const pin = S.pins.find(p => p.lead === id);
+  if (pin) { map.setView([pin.lat, pin.lng], 17); pinCard(pin); return; }
+  if (c.g) { map.setView(c.g, 17); return; }
+  const x = await geocode([c.k, c.c, c.il || ''].filter(Boolean).join(' '), true) || await geocode([c.c, c.il || ''].filter(Boolean).join(' '), true);
+  if (x) { map.setView([+x.lat, +x.lon], 15); toast(c.n + ': köyüne geldin. Kümesi bulunca “Kümes”e basıp üstüne dokun.'); }
+}
+map.on('click', () => { if ($('res').style.display === 'block') hideRes(); });
+
+/* ---------- Menü: Görev Matrisi bağlantısı, yedek ---------- */
+$('menu').onclick = () => {
+  const unk = S.pins.filter(p => !p.lead).length, ha = Math.round(S.areas.reduce((a, f) => { try { return a + turf.area(f); } catch (e) { return a; } }, 0) / 1000) / 10;
+  open('<div class="ph"><h3>Kümes Haritası</h3><button class="x" data-close>✕</button></div>' +
+    '<div class="kv"><span>Müşteri listesi</span><b>' + S.cust.length + ' kayıt</b></div><div class="kv"><span>İşaretli kümes</span><b>' + (S.pins.length - unk) + ' müşteri · ' + unk + ' ❓</b></div><div class="kv"><span>Taranan alan</span><b>' + ha.toString().replace('.', ',') + ' hektar</b></div>' +
+    '<div class="lbl">Görev Matrisi ile bağlantı</div>' +
+    '<button class="btn full pri" id="m-out">⬆️ Görev Matrisi’ne gönder (kopyala)</button>' +
+    '<div class="muted">Bulduğun kümes yerleri ve bütün harita (yedek) kopyalanır. Görev Matrisi → Müşteri → 🛰️ Uydu haritası → “Haritadan al” kutusuna yapıştır.</div>' +
+    '<button class="btn full" id="m-in">⬇️ Görev Matrisi’nden al (yapıştır)</button>' +
+    '<div class="lbl">Ayrıntılı</div><div class="row"><button class="btn" id="m-list">❓ Bilinmeyenler (' + unk + ')</button><button class="btn" id="m-help">Nasıl kullanılır</button></div>' +
+    '<button class="btn full dan" id="m-wipe">Taranan alanların hepsini sil</button>');
+  $('m-out').onclick = async () => {
+    const out = JSON.stringify({ kh: 1, at: Date.now(), geo: S.pins.filter(p => p.lead).map(p => [p.lead, p.lat, p.lng]), full: { areas: S.areas, pins: S.pins.map(p => { const o = Object.assign({}, p); delete o._drag; return o; }) } });
+    try { await navigator.clipboard.writeText(out); toast('Kopyalandı ✓ Şimdi Görev Matrisi’ne yapıştır'); } catch (e) { open('<div class="ph"><h3>Kopyala</h3><button class="x" data-close>✕</button></div><div class="muted">Otomatik kopyalanamadı. Kutuya basılı tut → Tümünü Seç → Kopyala.</div><textarea class="field" style="min-height:200px">' + esc(out) + '</textarea>'); }
+  };
+  $('m-in').onclick = pasteIn;
+  $('m-list').onclick = () => { const L2 = S.pins.filter(p => !p.lead); open('<div class="ph"><h3>❓ Bilinmeyen kümesler</h3><button class="x" data-close>✕</button></div><div class="list">' + (L2.length ? L2.map(p => '<button class="item" data-go="' + p.id + '"><div class="g"><b>' + esc(p.name || 'Bilinmeyen kümes') + '</b><small>' + esc(p.note || '') + '</small></div>›</button>').join('') : '<div class="muted">Yok.</div>') + '</div>'); document.querySelectorAll('#panel [data-go]').forEach(b => b.onclick = () => { const z = S.pins.find(x => x.id === b.dataset.go); close(); map.setView([z.lat, z.lng], 17); setTimeout(() => pinCard(z), 300); }); };
+  $('m-help').onclick = help;
+  $('m-wipe').onclick = () => { if (!S.areas.length) return; snapshot(); S.areas = []; save(); drawAreas(); close(); toast('Silindi · Geri al ile geri getirebilirsin'); };
+};
+function pasteIn() {
+  open('<div class="ph"><h3>Görev Matrisi’nden al</h3><button class="x" data-close>✕</button></div>' +
+    '<div class="muted">Görev Matrisi → Müşteri → 🛰️ Uydu haritası → “Müşterileri kopyala”ya bas, sonra buraya yapıştır.</div>' +
+    '<button class="btn full" id="pc-clip">📋 Panodan yapıştır</button><textarea class="field" id="pc-t" placeholder="ya da buraya basılı tutup Yapıştır"></textarea><button class="btn full pri" id="pc-ok">Al</button>');
+  $('pc-clip').onclick = async () => { try { $('pc-t').value = await navigator.clipboard.readText(); } catch (e) { toast('Kutuya basılı tutup Yapıştır de'); } };
+  $('pc-ok').onclick = () => {
+    let o; try { o = JSON.parse($('pc-t').value.trim()); } catch (e) { return toast('Bu yazı anlaşılamadı'); }
+    if (!o || !Array.isArray(o.cust)) return toast('Müşteri listesi bulunamadı');
+    S.cust = o.cust; let added = 0, restored = false;
+    if (o.full && (o.full.pins || o.full.areas) && !S.pins.length && !S.areas.length) { S.pins = o.full.pins || []; S.areas = o.full.areas || []; restored = true; }
+    S.cust.forEach(c => { if (c.g && !S.pins.some(p => p.lead === c.i)) { S.pins.push({ id: uid(), lat: c.g[0], lng: c.g[1], lead: c.i, name: '', note: '', cnt: '', t: Date.now() }); added++; } });
+    save(); drawPins(); drawAreas(); close();
+    toast(S.cust.length + ' müşteri alındı' + (added ? ' · ' + added + ' konum haritaya eklendi' : '') + (restored ? ' · yedek geri yüklendi' : ''));
+  };
+}
+function help() {
+  open('<div class="ph"><h3>Nasıl kullanılır</h3><button class="x" data-close>✕</button></div><div class="list" style="gap:10px;font-size:15px">' +
+    '<div>✋ <b>Gez</b>: haritayı kaydır, iki parmakla yakınlaştır.</div>' +
+    '<div>✏️ <b>Tara</b>: baktığın yerin etrafını parmağınla çiz, içi yeşil olur. Eski bir alana değecek şekilde çizersen ona eklenir. Yeşil alana dokunursan (Gez’de) not yazar ya da silersin.</div>' +
+    '<div>🏠 <b>Kümes</b>: kümesin çatısına dokun, müşteriyi seç. Bilmiyorsan seçmeden kaydet, ❓ olur. İşarete dokununca kartı açılır: telefon, düzenle, taşı, yol tarifi.</div>' +
+    '<div>⭕ <b>Daire</b>: bir kümese ya da herhangi bir yere dokun; 1–30 km arası daire çizilir, içindeki kümesler yakından uzağa km’siyle listelenir.</div>' +
+    '<div>↶ <b>Geri al</b>: son çizimi, eklemeyi ya da silmeyi geri alır.</div>' +
+    '<div>🔎 <b>Arama</b>: müşteri adı yaz, işaretliyse kümesine, değilse köyüne gider.</div>' +
+    '<div>☰ <b>Menü</b>: Görev Matrisi’ne gönder / Görev Matrisi’nden al. Gönder dedikçe bütün harita Görev Matrisi’nde yedeklenir.</div></div>');
+}
+
+/* ---------- Alttan açılan kart ---------- */
+function open(html) { $('panel').innerHTML = html; $('sheet').classList.add('on'); $('panel').scrollTop = 0; $('panel').querySelectorAll('[data-close]').forEach(b => b.onclick = close); }
+function close() { $('sheet').classList.remove('on'); $('panel').innerHTML = ''; if (selPin) { selPin = null; drawPins(); } }
+$('sbg').onclick = close;
+let tt = null; function toast(m) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(tt); tt = setTimeout(() => t.style.display = 'none', 2600); }
+
+/* ---------- Görev Matrisi'nden gelen bağlantı: #ll=38.1,28.2 ya da #m=müşteriId ---------- */
+function fromHash() {
+  const h = decodeURIComponent(location.hash.slice(1)); if (!h) return;
+  const m = h.match(/^ll=(-?[\d.]+),(-?[\d.]+)/); if (m) { map.setView([+m[1], +m[2]], 17); return; }
+  const c = h.match(/^m=(.+)$/); if (c) setTimeout(() => goCust(c[1]), 400);
+}
+window.addEventListener('hashchange', fromHash);
+
+drawAreas(); drawPins(); fromHash();
+if (!S.cust.length && !S.pins.length) setTimeout(help, 600);
+}
+</script>
+</body>
+</html>
