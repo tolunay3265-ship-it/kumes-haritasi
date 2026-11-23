@@ -543,8 +543,9 @@ async function bndLoad(force) {
   if (S.bnd === 0 || z < 7) { bndLayer.clearLayers(); bndKey = ''; return; }
   const lv = z >= 12 ? '4|6|8|9|10' : z >= 9 ? '4|6' : '4';
   const b = map.getBounds().pad(z >= 12 ? 0.4 : 0.6), r = v => v.toFixed(3), box = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(r), key = lv + '#' + box.join(',');
+  if (!(+box[2] > +box[0]) || +box[2] - +box[0] > 6 || +box[3] - +box[1] > 8) return;
   const old = bndKey.split('#');
-  if (!force && bndKey && old[0] === lv && old[1].split(',').every((v, i) => i < 2 ? +v <= +box[i] : +v >= +box[i])) { bndDraw(); return; }
+  if (!force && bndKey && bndData.length && old[0] === lv && old[1].split(',').every((v, i) => i < 2 ? +v <= +box[i] : +v >= +box[i])) { bndDraw(); return; }
   if (bndBusy) return; bndBusy = true; window.bndSt = 'istek z' + z;
   const bb = '(' + box.join(',') + ')';
   // Her seviye için: sınırlar (etiket + orta nokta), sonra o sınırların ekrandaki çizgileri
@@ -552,7 +553,7 @@ async function bndLoad(force) {
   try {
     let j = null;
     for (const u of ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter']) {
-      const sv = u.split('/')[2].split('.')[0]; try { const r = await fetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q) }); if (r.ok) { const jj = await r.json(); window.bndSt = sv + ': ' + (jj.elements || []).length + ' öğe' + (jj.remark ? ' · ' + String(jj.remark).slice(0, 60) : ''); if (!(jj.remark && /error/i.test(jj.remark))) { j = jj; break; } } else window.bndSt = sv + ': HTTP ' + r.status; } catch (e) { window.bndSt = sv + ': ' + String(e.message || e).slice(0, 40); }
+      const sv = u.split('/')[2].split('.')[0]; try { const r = await fetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q) }); if (r.ok) { const jj = await r.json(); window.bndSt = sv + ': ' + (jj.elements || []).length + ' öğe' + (jj.remark ? ' · ' + String(jj.remark).slice(0, 60) : ''); if (!jj.remark) { j = jj; break; } } else window.bndSt = sv + ': HTTP ' + r.status; } catch (e) { window.bndSt = sv + ': ' + String(e.message || e).slice(0, 40); }
     }
     if (!j) throw new Error('overpass');
     window.bndErr = 0;
@@ -563,7 +564,7 @@ async function bndLoad(force) {
     });
     const by = { 4: [], 6: [], 8: [] }; lvOf.forEach((l, id) => by[l <= 4 ? 4 : l <= 6 ? 6 : 8].push(lines.get(id)));
     bndData = [4, 6, 8].filter(l => by[l].length).map(l => ({ al: l, n: '', lines: by[l], lab: null })).concat(labs.map(x => ({ al: x.al <= 4 ? 4 : x.al <= 6 ? 6 : 8, n: x.n, lines: [], lab: x.at })));
-    bndKey = key; bndDraw();
+    bndKey = bndData.length ? key : ''; bndDraw();
   } catch (e) { if (!window.bndErr) { window.bndErr = 1; toast('Sınırlar yüklenemedi, biraz sonra tekrar denenecek'); } }
   bndBusy = false;
 }
