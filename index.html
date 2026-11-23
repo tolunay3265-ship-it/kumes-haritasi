@@ -112,7 +112,7 @@ body.kare .kbar{display:flex}body.kare .bar,body.kare .send,body.kare #tog,body.
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611231825"></script>
+<script src="gshim.js?v=202611231836"></script>
 <script>
 /* Hata olursa ekranın üstünde kırmızı yazı göster (beyaz ekranda ne olduğunu görebilelim) */
 (function () { const show = m => { try { let d = document.getElementById('errbox'); if (!d) { d = document.createElement('div'); d.id = 'errbox'; d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99999;background:#b00020;color:#fff;font:14px/1.4 system-ui;padding:10px 12px;border-radius:10px;white-space:pre-wrap;max-height:40vh;overflow:auto'; d.onclick = () => d.remove(); (document.body || document.documentElement).appendChild(d); } d.textContent = 'HATA (fotoğrafını Claude\'a at): ' + m + '\nsürüm ' + (window.APP_VER_TXT || '?'); } catch (e) {} };
@@ -161,7 +161,7 @@ function drawAreas() {
   S.areas.forEach((f, i) => { areaLayer.addData(f); });
   // Yeşil alanın içine tıklama: Gez'de alan kartı (içinde 'kümes ekle' var); diğer modlarda haritaya tıklamış gibi; çift tık = kümes ekle
   areaLayer.eachLayer(l => {
-    l.on('click', e => { if (mode === 'pan') { L.DomEvent.stopPropagation(e); clearTimeout(clickT); clickT = setTimeout(() => { clickT = null; areaCard(l.feature, e.latlng); }, 260); } else if (window.GOOG && mode !== 'draw') { clearTimeout(clickT); clickT = setTimeout(() => { clickT = null; onClick(e); }, 260); } });
+    l.on('click', e => { if (window.kPick) { L.DomEvent.stopPropagation(e); kPickAt(e.latlng); return; } if (mode === 'pan') { L.DomEvent.stopPropagation(e); clearTimeout(clickT); clickT = setTimeout(() => { clickT = null; areaCard(l.feature, e.latlng); }, 260); } else if (window.GOOG && mode !== 'draw') { clearTimeout(clickT); clickT = setTimeout(() => { clickT = null; onClick(e); }, 260); } });
     l.on('dblclick', e => { L.DomEvent.stopPropagation(e); clearTimeout(clickT); clickT = null; newPinAt(e.latlng); });
   });
 }
@@ -332,6 +332,7 @@ async function gPlaceCard(id, ll) {
 function newPinAt(ll) { pinForm({ lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6), lead: null, name: '', note: '', cnt: '', st: '' }, true); }
 map.on('click', e => { if (mode === 'draw') return; clearTimeout(clickT); clickT = setTimeout(() => { clickT = null; onClick(e); }, 260); });
 function onClick(e) {
+  if (window.kPick) { kPickAt(e.latlng); return; }
   if (mode === 'pin') { if (window.kSwiped && Date.now() - window.kSwiped < 600) return; newPinAt(e.latlng); }
   else if (mode === 'circle') setCircle([e.latlng.lat, e.latlng.lng]);
   else if (mode === 'route') routeTo([e.latlng.lat, e.latlng.lng], 'Seçilen yer');
@@ -594,13 +595,13 @@ function kareStart() {
   };
   if (S.kare && S.kare.done && S.kare.done.length) kCommit(go); else go();
 }
-function kareOn() { const K = S.kare; if (!K) return; K.done = K.done || []; kPrep(K); document.body.classList.add('kare'); setMode('pin'); kDrawDone(); kShow(); }
-function kareOff() { document.body.classList.remove('kare'); if (kLayer) { map.removeLayer(kLayer); kLayer = null; } setMode('pan'); kCommit(); }
+function kareOn() { const K = S.kare; if (!K) return; K.done = K.done || []; kPrep(K); document.body.classList.add('kare'); setMode('pin'); kDrawDone(); kDrawReg(); kShow(); }
+function kareOff() { document.body.classList.remove('kare'); if (kLayer) { map.removeLayer(kLayer); kLayer = null; } if (kRegL) { map.removeLayer(kRegL); kRegL = null; } setMode('pan'); kCommit(); }
 function kShow() {
   const K = S.kare; if (!K) return kareOff();
   while (K.i < K.cells.length && K.i >= 0 && !K.back && kDone(K.cells[K.i])) K.i++;
   K.back = false;
-  if (K.i >= K.cells.length) { const f = K.found; document.body.classList.remove('kare'); if (kLayer) { map.removeLayer(kLayer); kLayer = null; } setMode('pan'); kCommit(() => { S.kare = null; save(); }); open('<div class="ph"><h3>Tarama bitti 🎉</h3><button class="x" data-close>✕</button></div><div class="muted">Bölgedeki bütün kareler tarandı. Bu taramada ' + f + ' kümes eklendi.</div>'); return; }
+  if (K.i >= K.cells.length) { const f = K.found; document.body.classList.remove('kare'); if (kLayer) { map.removeLayer(kLayer); kLayer = null; } setMode('pan'); if (kRegL) { map.removeLayer(kRegL); kRegL = null; } kCommit(() => { S.kare = null; save(); }); open('<div class="ph"><h3>Tarama bitti 🎉</h3><button class="x" data-close>✕</button></div><div class="muted">Bölgedeki bütün kareler tarandı. Bu taramada ' + f + ' kümes eklendi.</div>'); return; }
   const c = K.cells[K.i], bb = L.latLngBounds([c[0], c[1]], [c[0] + KARE.dLat, c[1] + KARE.dLng]);
   if (kLayer) map.removeLayer(kLayer);
   kLayer = L.layerGroup().addTo(map);
@@ -615,13 +616,76 @@ function kNext() {
   K.i++; save(); kShow(); setTimeout(() => kBusy = false, 150);
 }
 function kPrev() { const K = S.kare; if (!K || K.i === 0) return; K.i--; K.back = true; if (K.done) { K.done = K.done.filter(k => k !== kKey(K.cells[K.i])); kDrawDone(); } save(); kShow(); }
+/* Köy / mahalle seçerek tarama */
+let kRegL = null;
+const regFeat = r => turf.multiPolygon(r.r.filter(x => x.length > 3).map(x => { const q = x.map(p => [p[1], p[0]]); const f = q[0], l = q[q.length - 1]; if (f[0] !== l[0] || f[1] !== l[1]) q.push(f); return [q]; }));
+function regList() {
+  if (!bndAll) return [];
+  const v = map.getBounds(), out = [];
+  (bndAll.koy || []).forEach(x => { if (bbHit(x.bb, v)) out.push(Object.assign({ kind: 'köy (yaklaşık)' }, x)); });
+  (bndAll.mah || []).forEach(x => { if (bbHit(x.bb, v)) out.push(Object.assign({ kind: 'mahalle' }, x)); });
+  const seen = new Set(); return out.filter(x => { const k = x.n + x.c[0]; if (seen.has(k)) return false; seen.add(k); return true; }).sort((p, q) => p.n.localeCompare(q.n, 'tr'));
+}
+function regAt(ll) {
+  if (!bndAll) return null; const pt = [ll.lng, ll.lat];
+  const hit = (arr, kind) => { for (const x of arr || []) { if (ll.lat < x.bb[0] || ll.lat > x.bb[2] || ll.lng < x.bb[1] || ll.lng > x.bb[3]) continue; try { if (turf.booleanPointInPolygon(pt, regFeat(x))) return Object.assign({ kind }, x); } catch (e) {} } return null; };
+  return hit(bndAll.mah, 'mahalle') || hit(bndAll.koy, 'köy (yaklaşık)');
+}
+function kDrawReg() {
+  if (kRegL) { map.removeLayer(kRegL); kRegL = null; }
+  const K = S.kare; if (!K || !K.reg) return;
+  kRegL = L.layerGroup().addTo(map);
+  K.reg.r.forEach(ring => L.polyline(ring.concat([ring[0]]), { color: '#33d6ff', weight: 4, opacity: 1, interactive: false, zIndex: 25 }).addTo(kRegL));
+}
+function kareStartReg(reg) {
+  const go = () => {
+    let f; try { f = regFeat(reg); } catch (e) { toast('Bu bölgenin sınırı okunamadı'); return; }
+    const [w0, s0, e0, n0] = turf.bbox(f);
+    const rows = Math.ceil((n0 - s0) / KARE.dLat), cols = Math.ceil((e0 - w0) / KARE.dLng);
+    if (rows * cols > 6000) { toast(reg.n + ' çok büyük, kare kare taranamaz'); return; }
+    const m = 0.0004, inReg = (la, lo) => [[lo + KARE.dLng / 2, la + KARE.dLat / 2], [lo + m, la + m], [lo + KARE.dLng - m, la + m], [lo + m, la + KARE.dLat - m], [lo + KARE.dLng - m, la + KARE.dLat - m]].some(pt => { try { return turf.booleanPointInPolygon(pt, f); } catch (e) { return false; } });
+    const cells = [];
+    for (let r = rows - 1; r >= 0; r--) { const row = []; for (let c = 0; c < cols; c++) { const la = +(s0 + r * KARE.dLat).toFixed(5), lo = +(w0 + c * KARE.dLng).toFixed(5); if (inReg(la, lo)) row.push([la, lo]); } if ((rows - 1 - r) % 2) row.reverse(); cells.push(...row); }
+    if (!cells.length) { toast('Bu bölgede kare çıkmadı'); return; }
+    if (cells.length > 1500) { toast(reg.n + ' çok büyük (' + cells.length + ' kare). Ekranı tara seçeneğiyle parça parça yap.'); return; }
+    S.kare = null; kPrep({ cells });
+    const todo = cells.filter(c => !kInArea(c));
+    if (!todo.length) { toast(reg.n + ' zaten tamamen taranmış ✓'); return; }
+    S.kare = { cells: todo, i: 0, found: 0, done: [], t: Date.now(), reg: { n: reg.n, r: reg.r } }; save(); kareOn();
+    toast(reg.n + ' · ' + todo.length + ' kare');
+  };
+  if (S.kare && S.kare.done && S.kare.done.length) kCommit(go); else go();
+}
+function kPickStart() {
+  if (S.bnd === 0) { S.bnd = 1; save(); }
+  if (!bndAll) bndLoad();
+  window.kPick = true; document.body.classList.add('kpick');
+  toast('Taramak istediğin köyün ya da mahallenin içine dokun', 4000);
+}
+function kPickAt(ll) {
+  window.kPick = false; document.body.classList.remove('kpick');
+  const r = regAt(ll);
+  if (!r) { toast(map.getZoom() < 12 ? 'Orada köy sınırı yok. Biraz yakınlaş (köy sınırları yakınlaşınca yüklenir) ve tekrar dene' : 'Dokunduğun yerde köy/mahalle sınırı bulunamadı', 4500); return; }
+  open('<div class="ph"><h3>🔲 ' + esc(r.n) + '</h3><button class="x" data-close>✕</button></div><div class="muted">' + esc(r.kind) + ' · bu bölgeyi kare kare tarayalım mı?</div><div class="row"><button class="btn" data-close>Vazgeç</button><button class="btn pri" id="kreg">Tara</button></div>');
+  $('kreg').onclick = () => { close(); kareStartReg(r); };
+}
+function kListOpen() {
+  if (!bndAll) { bndLoad(); toast('Sınırlar yükleniyor, birazdan tekrar dene'); return; }
+  const L0 = regList();
+  if (!L0.length) { toast(map.getZoom() < 12 ? 'Ekranda köy/mahalle yok. Biraz yakınlaşıp tekrar dene' : 'Ekranda köy/mahalle sınırı bulunamadı', 4000); return; }
+  open('<div class="ph"><h3>Köy / mahalle seç</h3><button class="x" data-close>✕</button></div><input class="field" id="kq" placeholder="Ara…"><div class="list" id="kls"></div>');
+  const draw = q => { const n = norm(q || ''); $('kls').innerHTML = L0.map((x, i) => [x, i]).filter(([x]) => !n || norm(x.n).includes(n)).slice(0, 150).map(([x, i]) => '<button class="item" data-r="' + i + '"><div class="g"><b>' + esc(x.n) + '</b><small>' + esc(x.kind) + '</small></div></button>').join(''); document.querySelectorAll('#kls [data-r]').forEach(bt => bt.onclick = () => { close(); kareStartReg(L0[+bt.dataset.r]); }); };
+  draw(''); $('kq').oninput = e => draw(e.target.value);
+}
 $('kareb').onclick = () => {
+  const opts = '<div class="row"><button class="btn pri" id="kgo">📺 Ekrandaki bölgeyi tara</button></div><div class="row"><button class="btn" id="kpick">👆 Haritada köy / mahalle seç</button></div><div class="row"><button class="btn" id="klist">📋 Listeden köy / mahalle seç</button></div>';
+  const wire = () => { $('kgo').onclick = () => { close(); kareStart(); }; $('kpick').onclick = () => { close(); kPickStart(); }; $('klist').onclick = () => { close(); kListOpen(); }; };
   if (S.kare && S.kare.i < S.kare.cells.length) {
-    open('<div class="ph"><h3>🔲 Kare kare tarama</h3><button class="x" data-close>✕</button></div><div class="muted">Yarım kalan tarama var: kare ' + (S.kare.i + 1) + ' / ' + S.kare.cells.length + '.</div><div class="row"><button class="btn pri" id="kcont">Kaldığın yerden devam</button></div><div class="row"><button class="btn" id="knew">Yeni tarama: şu an ekrandaki bölge</button></div>');
-    $('kcont').onclick = () => { close(); kareOn(); }; $('knew').onclick = () => { close(); kareStart(); };
+    open('<div class="ph"><h3>🔲 Kare kare tarama</h3><button class="x" data-close>✕</button></div><div class="muted">Yarım kalan tarama var' + (S.kare.reg ? ' (' + esc(S.kare.reg.n) + ')' : '') + ': kare ' + (S.kare.i + 1) + ' / ' + S.kare.cells.length + '.</div><div class="row"><button class="btn pri" id="kcont">Kaldığın yerden devam</button></div><div class="lbl">Yeni tarama</div>' + opts.replace('btn pri" id="kgo"', 'btn" id="kgo"'));
+    $('kcont').onclick = () => { close(); kareOn(); }; wire();
   } else {
-    open('<div class="ph"><h3>🔲 Kare kare tarama</h3><button class="x" data-close>✕</button></div><div class="muted">Taramak istediğin bölgeyi (bir köy, birkaç köy) ekrana sığdır, sonra başlat. Bölge yaklaşık 400 m’lik karelere bölünür ve sırayla gösterilir.<br><br>• Karede kümes varsa <b>üstüne dokun</b> → kümes eklenir<br>• Yoksa alttaki çubuğu <b>sola kaydır</b> ya da <b>Geç ▶</b><br>• Harita serbest: parmakla kaydırıp yakınlaştırabilirsin, <b>⤢</b> kareye geri döner<br>• Geçtiğin kareler yeşile boyanır, daha önce taranmış kareler atlanır<br>• Bilgisayarda: → / boşluk = geç, ← = geri</div><div class="row"><button class="btn pri" id="kgo">Ekrandaki bölgeyi tara</button></div>');
-    $('kgo').onclick = () => { close(); kareStart(); };
+    open('<div class="ph"><h3>🔲 Kare kare tarama</h3><button class="x" data-close>✕</button></div><div class="muted">Nereyi tarayacağını seç. Bölge yaklaşık 400 m’lik karelere bölünür ve sırayla gösterilir.<br><br>• <b>Ekran</b>: şu an ekranda görünen yer<br>• <b>Köy / mahalle</b>: haritada içine dokun ya da listeden seç; sadece o köyün içindeki kareler gelir (mavi çizgiyle gösterilir)<br><br>• Karede kümes varsa <b>üstüne dokun</b> → kümes eklenir<br>• Yoksa çubuğu <b>sola kaydır</b> ya da <b>Geç ▶</b><br>• Harita serbest, <b>⤢</b> kareye geri döner<br>• Bilgisayarda: → / boşluk = geç, ← = geri</div>' + opts);
+    wire();
   }
 };
 $('knext').onclick = kNext; $('kprev').onclick = kPrev;
@@ -896,7 +960,7 @@ if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeo
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
 window.APP_VER_TXT = document.currentScript ? '' : '';
-const APP_VER = '202611231825';
+const APP_VER = '202611231836';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { let n = 0; try { n = +(sessionStorage.getItem('kh-up-' + t) || 0); sessionStorage.setItem('kh-up-' + t, n + 1); } catch (e) {} if (n >= 2) return; const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 window.APP_VER_TXT = APP_VER; checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
