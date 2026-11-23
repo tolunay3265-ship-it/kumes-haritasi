@@ -112,7 +112,7 @@ body.kare .kbar{display:flex}body.kare .bar,body.kare .send,body.kare #tog,body.
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611231941"></script>
+<script src="gshim.js?v=202611231945"></script>
 <script>
 /* Hata olursa ekranın üstünde kırmızı yazı göster (beyaz ekranda ne olduğunu görebilelim) */
 (function () { const show = m => { try { let d = document.getElementById('errbox'); if (!d) { d = document.createElement('div'); d.id = 'errbox'; d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99999;background:#b00020;color:#fff;font:14px/1.4 system-ui;padding:10px 12px;border-radius:10px;white-space:pre-wrap;max-height:40vh;overflow:auto'; d.onclick = () => d.remove(); (document.body || document.documentElement).appendChild(d); } d.textContent = 'HATA (fotoğrafını Claude\'a at): ' + m + '\nsürüm ' + (window.APP_VER_TXT || '?'); } catch (e) {} };
@@ -743,7 +743,7 @@ function bndDraw() {
   bndData = { length: n };
 }
 // Köy sınırları haritada çoğu yerde yok: ilçe içindeki köy merkezlerinden yaklaşık sınır çizilir (her köy, kendine en yakın alanı alır)
-const koyDone = new Set();
+const koyDone = new Set(); let koyPts;
 async function koyLoad() {
   if (!bndAll || map.getZoom() < 12 || typeof turf === 'undefined') return;
   const v = map.getBounds();
@@ -753,7 +753,10 @@ async function koyLoad() {
     const bb = il.bb, q = '[out:json][timeout:25];node["place"~"^(village|hamlet|neighbourhood|quarter|suburb|town)$"](' + bb.join(',') + ');out;';
     const ck = 'kh-koy1-' + il.n + '-' + il.c.join(',');
     let j = null;
-    try { const c = JSON.parse(localStorage.getItem(ck) || 'null'); if (c && c.length) j = { elements: c.map(e => ({ lat: e[1], lon: e[2], tags: { name: e[0] } })) }; } catch (e) {}
+    // 1) Uygulamayla gelen hazır köy listesi (koy.json) 2) daha önce indirilen 3) internetten
+    if (koyPts === undefined) { try { const r = await fetch('koy.json?v=' + APP_VER); koyPts = r.ok ? await r.json() : null; } catch (e) { koyPts = null; } }
+    if (koyPts && koyPts.length) j = { elements: koyPts.filter(e => e[1] >= bb[0] && e[1] <= bb[2] && e[2] >= bb[1] && e[2] <= bb[3]).map(e => ({ lat: e[1], lon: e[2], tags: { name: e[0] } })) };
+    if (!j) try { const c = JSON.parse(localStorage.getItem(ck) || 'null'); if (c && c.length) j = { elements: c.map(e => ({ lat: e[1], lon: e[2], tags: { name: e[0] } })) }; } catch (e) {}
     if (!j) {
       window.bndSt = 'köy merkezleri alınıyor';
       for (const u of ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter', 'https://overpass.osm.ch/api/interpreter']) {
@@ -984,7 +987,7 @@ if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeo
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
 window.APP_VER_TXT = document.currentScript ? '' : '';
-const APP_VER = '202611231941';
+const APP_VER = '202611231945';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { let n = 0; try { n = +(sessionStorage.getItem('kh-up-' + t) || 0); sessionStorage.setItem('kh-up-' + t, n + 1); } catch (e) {} if (n >= 2) return; const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 window.APP_VER_TXT = APP_VER; checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
