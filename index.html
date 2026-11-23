@@ -104,7 +104,7 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611231616"></script>
+<script src="gshim.js?v=202611231617"></script>
 <script>
 function APP() {
 const KEY = 'kumes-harita-v1';
@@ -526,7 +526,7 @@ $('lay').onclick = () => {
   open('<div class="ph"><h3>Harita görünümü</h3><button class="x" data-close>✕</button></div><div class="list">' +
     [['sat', 'Uydu', 'Sadece uydu fotoğrafı'], ['satlbl', 'Uydu + yollar ve köy adları', 'Yol ve yer adları üstte'], ['street', 'Sokak haritası', 'Uydusuz, yollar belirgin']].map(([k, n, d]) => '<button class="item" data-l="' + k + '"><div class="g"><b>' + (S.layer === k ? '✓ ' : '') + n + '</b><small>' + d + '</small></div></button>').join('') + '</div>');
   if (!window.GOOG) $('panel').insertAdjacentHTML('beforeend', '<div class="lbl">Yerler</div><button class="item" id="poit"><b style="font-size:20px">' + (S.poi !== 0 ? '☑️' : '⬜') + '</b><div class="g"><b>Benzinlik, market, lokanta… göster</b><small>Yakınlaştırınca görünür, üstüne basınca bilgileri çıkar</small></div></button>');
-  $('panel').insertAdjacentHTML('beforeend', '<div class="lbl">Sınırlar</div><button class="item" id="bndt"><b style="font-size:20px">' + (S.bnd !== 0 ? '☑️' : '⬜') + '</b><div class="g"><b>İl, ilçe ve köy sınırlarını göster</b><small>Beyaz kalın: il · turuncu: ilçe · sarı kesikli: köy / mahalle (yakınlaşınca)</small></div></button>');
+  $('panel').insertAdjacentHTML('beforeend', '<div class="lbl">Sınırlar</div><button class="item" id="bndt"><b style="font-size:20px">' + (S.bnd !== 0 ? '☑️' : '⬜') + '</b><div class="g"><b>İl, ilçe ve köy sınırlarını göster</b><small>Kırmızı kalın: il · turuncu: ilçe · sarı: köy / mahalle (yakınlaşınca)</small></div></button>');
   $('bndt').onclick = () => { S.bnd = S.bnd === 0 ? 1 : 0; save(); bndLoad(true); close(); };
   if ($('poit')) $('poit').onclick = () => { S.poi = S.poi === 0 ? 1 : 0; save(); poiLoad(true); close(); };
   document.querySelectorAll('#panel [data-l]').forEach(b => b.onclick = () => { S.layer = b.dataset.l; save(); applyLayer(); close(); });
@@ -535,8 +535,8 @@ $('lay').onclick = () => {
 const bndLayer = L.layerGroup().addTo(map);
 let bndT = null, bndKey = '', bndData = [], bndBusy = false;
 // Çizgi kalınlığı yakınlığa göre: uzaktayken kalın, yakınlaştıkça incelir
-const bndW = (al, z) => al === 4 ? (z <= 8 ? 7 : z <= 10 ? 5.5 : z <= 12 ? 4 : z <= 14 ? 3 : 2.5) : al === 6 ? (z <= 10 ? 4 : z <= 12 ? 3 : z <= 14 ? 2.5 : 2) : (z <= 13 ? 2 : 1.6);
-const BND = { 4: { color: '#ffffff', opacity: .95 }, 6: { color: '#ff9f43', opacity: .95 }, 8: { color: '#ffe14d', opacity: .85, dashArray: '6 5' } };
+const bndW = (al, z) => al === 4 ? (z <= 8 ? 8 : z <= 10 ? 7 : z <= 12 ? 5.5 : z <= 14 ? 4.5 : 3.5) : al === 6 ? (z <= 10 ? 5 : z <= 12 ? 4 : z <= 14 ? 3.5 : 3) : (z <= 13 ? 3 : z <= 15 ? 2.5 : 2);
+const BND = { 4: { color: '#ff1f1f', opacity: 1 }, 6: { color: '#ff9f1a', opacity: 1 }, 8: { color: '#ffe14d', opacity: .95 } };
 map.on('moveend', () => { clearTimeout(bndT); bndT = setTimeout(bndLoad, 800); });
 async function bndLoad(force) {
   const z = map.getZoom();
@@ -570,7 +570,7 @@ function bndDraw() {
   bndData.slice().sort((a, b) => b.al - a.al).forEach(x => {
     if (x.al === 8 && z < 12) return;
     const w = bndW(x.al, z), st = Object.assign({ interactive: false, zIndex: 20 - x.al, weight: w }, BND[x.al] || BND[8]);
-    if (x.al <= 6) x.lines.forEach(ln => L.polyline(ln, { color: '#000000', opacity: .35, weight: w + 3, interactive: false, zIndex: 9 - x.al }).addTo(bndLayer));
+    x.lines.forEach(ln => L.polyline(ln, { color: '#000000', opacity: .45, weight: w + 3, interactive: false, zIndex: 9 - x.al }).addTo(bndLayer));
     x.lines.forEach(ln => L.polyline(ln, st).addTo(bndLayer));
     if (!x.n || (x.al === 4) || (x.al === 6 && z > 12) || (x.al === 8 && z < 13)) return;
     let at = x.lab;
@@ -781,7 +781,7 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeout(() => { if (!S.cust.length && !S.pins.length && !$('sheet').classList.contains('on')) help(); }, 600);
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
-const APP_VER = '202611231616';
+const APP_VER = '202611231617';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
