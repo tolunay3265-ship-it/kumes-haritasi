@@ -104,7 +104,7 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611231617"></script>
+<script src="gshim.js?v=202611231621"></script>
 <script>
 function APP() {
 const KEY = 'kumes-harita-v1';
@@ -546,21 +546,23 @@ async function bndLoad(force) {
   const old = bndKey.split('#');
   if (!force && bndKey && old[0] === lv && old[1].split(',').every((v, i) => i < 2 ? +v <= +box[i] : +v >= +box[i])) { bndDraw(); return; }
   if (bndBusy) return; bndBusy = true;
-  const q = '[out:json][timeout:40];rel["boundary"="administrative"]["admin_level"~"^(' + lv + ')$"](' + box.join(',') + ');out geom(' + box.join(',') + ');';
+  const bb = '(' + box.join(',') + ')';
+  // Her seviye için: sınırlar (etiket + orta nokta), sonra o sınırların ekrandaki çizgileri
+  const q = '[out:json][timeout:60];' + lv.split('|').map(l => 'rel["boundary"="administrative"]["admin_level"="' + l + '"]' + bb + '->.r' + l + ';.r' + l + ' out tags center;way(r.r' + l + ')' + bb + ';out geom;').join('');
   try {
     let j = null;
     for (const u of ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter']) {
-      try { const r = await fetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q) }); if (r.ok) { j = await r.json(); break; } } catch (e) {}
+      try { const r = await fetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q) }); if (r.ok) { const jj = await r.json(); if (!(jj.remark && /error/i.test(jj.remark))) { j = jj; break; } } } catch (e) {}
     }
     if (!j) throw new Error('overpass');
     window.bndErr = 0;
-    bndData = (j.elements || []).map(e => {
-      const t = e.tags || {}, al = +t.admin_level, lines = [];
-      (e.members || []).forEach(m => { if (m.type === 'way' && m.geometry && m.geometry.length > 1 && m.role !== 'subarea') lines.push(m.geometry.filter(Boolean).map(g => [g.lat, g.lon])); });
-      let lab = null; const lb = (e.members || []).find(m => (m.role === 'label' || m.role === 'admin_centre') && m.type === 'node' && m.lat);
-      if (lb) lab = [lb.lat, lb.lon];
-      return { al: al >= 8 ? 8 : al, n: (t['name:tr'] || t.name || '').replace(/\s+(Mahallesi|Köyü)$/i, ''), lines, lab };
-    }).filter(x => x.lines.length);
+    const lvOf = new Map(), lines = new Map(), labs = []; let cur = 8;
+    (j.elements || []).forEach(e => {
+      if (e.type === 'relation') { const t = e.tags || {}; cur = Math.min(8, +t.admin_level || 8); const n = (t['name:tr'] || t.name || '').replace(/\s+(Mahallesi|Köyü)$/i, ''); if (n && e.center) labs.push({ al: cur, n, at: [e.center.lat, e.center.lon] }); return; }
+      if (e.type === 'way' && e.geometry && e.geometry.length > 1) { if (!lvOf.has(e.id) || cur < lvOf.get(e.id)) lvOf.set(e.id, cur); if (!lines.has(e.id)) lines.set(e.id, e.geometry.filter(Boolean).map(g => [g.lat, g.lon])); }
+    });
+    const by = { 4: [], 6: [], 8: [] }; lvOf.forEach((l, id) => by[l <= 4 ? 4 : l <= 6 ? 6 : 8].push(lines.get(id)));
+    bndData = [4, 6, 8].filter(l => by[l].length).map(l => ({ al: l, n: '', lines: by[l], lab: null })).concat(labs.map(x => ({ al: x.al <= 4 ? 4 : x.al <= 6 ? 6 : 8, n: x.n, lines: [], lab: x.at })));
     bndKey = key; bndDraw();
   } catch (e) { if (!window.bndErr) { window.bndErr = 1; toast('Sınırlar yüklenemedi, biraz sonra tekrar denenecek'); } }
   bndBusy = false;
@@ -570,15 +572,16 @@ function bndDraw() {
   bndData.slice().sort((a, b) => b.al - a.al).forEach(x => {
     if (x.al === 8 && z < 12) return;
     const w = bndW(x.al, z), st = Object.assign({ interactive: false, zIndex: 20 - x.al, weight: w }, BND[x.al] || BND[8]);
-    x.lines.forEach(ln => L.polyline(ln, { color: '#000000', opacity: .45, weight: w + 3, interactive: false, zIndex: 9 - x.al }).addTo(bndLayer));
+    if (x.lines.length) x.lines.forEach(ln => L.polyline(ln, { color: '#000000', opacity: .45, weight: w + 3, interactive: false, zIndex: 9 - x.al }).addTo(bndLayer));
     x.lines.forEach(ln => L.polyline(ln, st).addTo(bndLayer));
     if (!x.n || (x.al === 4) || (x.al === 6 && z > 12) || (x.al === 8 && z < 13)) return;
     let at = x.lab;
-    if (!at || !vb.contains(at)) { let n = 0, la = 0, lo = 0; x.lines.forEach(ln => ln.forEach(p => { if (vb.contains(p)) { la += p[0]; lo += p[1]; n++; } })); if (!n) return; at = [la / n, lo / n]; if (x.lab && !vb.contains(x.lab)) {} }
+    if (!x.lines.length) { if (!at || !vb.contains(at)) return; }
+    else if (!at || !vb.contains(at)) { let n = 0, la = 0, lo = 0; x.lines.forEach(ln => ln.forEach(p => { if (vb.contains(p)) { la += p[0]; lo += p[1]; n++; } })); if (!n) return; at = [la / n, lo / n]; if (x.lab && !vb.contains(x.lab)) {} }
     L.marker(at, { icon: L.divIcon({ className: '', iconSize: [0, 0], html: '<div class="bl i' + x.al + '">' + esc(x.n) + '</div>' }), interactive: false, keyboard: false }).addTo(bndLayer);
   });
 }
-setTimeout(() => bndLoad(true), 1500);
+setTimeout(() => bndLoad(true), 3500);
 /* ---------- Yerler (OpenStreetMap): benzinlik, market, lokanta, eczane, cami… ---------- */
 const poiLayer = L.layerGroup().addTo(map);
 const POI_T = { fuel: ['⛽', 'Benzinlik'], restaurant: ['🍽️', 'Lokanta'], fast_food: ['🍔', 'Büfe'], cafe: ['☕', 'Kahvehane / kafe'], pharmacy: ['💊', 'Eczane'], hospital: ['🏥', 'Hastane'], clinic: ['🏥', 'Sağlık ocağı'], doctors: ['🩺', 'Doktor'], place_of_worship: ['🕌', 'Cami'], school: ['🏫', 'Okul'], bank: ['🏦', 'Banka'], atm: ['🏧', 'ATM'], post_office: ['📮', 'PTT'], police: ['🚓', 'Karakol'], townhall: ['🏛️', 'Muhtarlık / belediye'], veterinary: ['🐾', 'Veteriner'], marketplace: ['🧺', 'Pazar yeri'], car_repair: ['🔧', 'Oto tamir'], tyres: ['🛞', 'Lastikçi'], supermarket: ['🛒', 'Market'], convenience: ['🛒', 'Bakkal'], bakery: ['🥖', 'Fırın'], butcher: ['🥩', 'Kasap'], agrarian: ['🌾', 'Zirai / yem bayi'], hardware: ['🔨', 'Hırdavat'], farm: ['🚜', 'Çiftlik'], hotel: ['🏨', 'Otel'], truck_stop: ['🚛', 'Tır parkı'], parking: ['🅿️', 'Otopark'] };
@@ -781,7 +784,7 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeout(() => { if (!S.cust.length && !S.pins.length && !$('sheet').classList.contains('on')) help(); }, 600);
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
-const APP_VER = '202611231617';
+const APP_VER = '202611231621';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
