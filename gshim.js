@@ -72,7 +72,7 @@ function installShim() {
   const dash = (o, color) => o.dashArray ? { strokeOpacity: 0, icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, strokeColor: color, strokeWeight: o.weight || 3, scale: 2 }, offset: '0', repeat: (parseInt(o.dashArray, 10) * 2 || 12) + 'px' }] } : { strokeOpacity: o.opacity == null ? 1 : o.opacity };
   class Polyline extends Layer {
     constructor(pts, o) { super(); this.pts = pts; this.o = o || {}; }
-    _attach(g) { const o = this.o, c = o.color || '#3388ff'; this.p = new GM.Polyline(Object.assign({ map: g, path: this.pts.map(gl), strokeColor: c, strokeWeight: o.weight || 3, clickable: false, zIndex: 50 }, dash(o, c))); }
+    _attach(g) { const o = this.o, c = o.color || '#3388ff'; this.p = new GM.Polyline(Object.assign({ map: g, path: this.pts.map(gl), strokeColor: c, strokeWeight: o.weight || 3, strokeOpacity: o.opacity == null ? 1 : o.opacity, clickable: false, zIndex: o.zIndex || 50 }, dash(o, c))); }
     _detach() { if (this.p) this.p.setMap(null); this.p = null; }
     setLatLngs(pts) { this.pts = pts; if (this.p) this.p.setPath(pts.map(gl)); }
   }

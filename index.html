@@ -63,6 +63,7 @@ textarea.field{min-height:84px;resize:vertical}
 .pin i{width:22px;height:22px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.6);display:grid;place-items:center;font-style:normal;font-weight:900;font-size:13px;color:#fff}
 .pin span{margin-top:2px;background:rgba(0,0,0,.72);color:#fff;font-size:11.5px;font-weight:700;padding:1px 6px;border-radius:6px;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis}
 .pin.q i{background:var(--q);color:#1b1000}.pin.x i{background:#6b7280}.pin.n i{background:#374151;width:16px;height:16px;border-width:2px}.pin.c i{background:var(--cust)}.pin.s i{background:var(--sale)}.pin.sel i{outline:3px solid #ffe14d}
+.bl{transform:translate(-50%,-50%);width:max-content;font:600 12px/1.2 system-ui;color:#fff7c2;text-shadow:0 0 3px #000,0 0 3px #000,0 0 2px #000;pointer-events:none;letter-spacing:.2px}.bl.i6{font-size:14px;color:#ffd08a}
 .poi{display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);width:max-content}.poi i{font-style:normal;font-size:15px;width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.92);display:grid;place-items:center;box-shadow:0 1px 4px rgba(0,0,0,.5)}.poi span{margin-top:1px;font-size:10.5px;font-weight:700;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .leaflet-control-attribution{font-size:9px;background:rgba(0,0,0,.45)!important;color:#ccc}.leaflet-control-attribution a{color:#ddd}
 .leaflet-control-zoom{display:none}
@@ -97,7 +98,7 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611231603"></script>
+<script src="gshim.js?v=202611231606"></script>
 <script>
 function APP() {
 const KEY = 'kumes-harita-v1';
@@ -519,9 +520,51 @@ $('lay').onclick = () => {
   open('<div class="ph"><h3>Harita görünümü</h3><button class="x" data-close>✕</button></div><div class="list">' +
     [['sat', 'Uydu', 'Sadece uydu fotoğrafı'], ['satlbl', 'Uydu + yollar ve köy adları', 'Yol ve yer adları üstte'], ['street', 'Sokak haritası', 'Uydusuz, yollar belirgin']].map(([k, n, d]) => '<button class="item" data-l="' + k + '"><div class="g"><b>' + (S.layer === k ? '✓ ' : '') + n + '</b><small>' + d + '</small></div></button>').join('') + '</div>');
   if (!window.GOOG) $('panel').insertAdjacentHTML('beforeend', '<div class="lbl">Yerler</div><button class="item" id="poit"><b style="font-size:20px">' + (S.poi !== 0 ? '☑️' : '⬜') + '</b><div class="g"><b>Benzinlik, market, lokanta… göster</b><small>Yakınlaştırınca görünür, üstüne basınca bilgileri çıkar</small></div></button>');
+  $('panel').insertAdjacentHTML('beforeend', '<div class="lbl">Sınırlar</div><button class="item" id="bndt"><b style="font-size:20px">' + (S.bnd !== 0 ? '☑️' : '⬜') + '</b><div class="g"><b>İl, ilçe ve köy sınırlarını göster</b><small>Beyaz kesikli: il · turuncu: ilçe · sarı kesikli: köy / mahalle (yakınlaşınca)</small></div></button>');
+  $('bndt').onclick = () => { S.bnd = S.bnd === 0 ? 1 : 0; save(); bndLoad(true); close(); };
   if ($('poit')) $('poit').onclick = () => { S.poi = S.poi === 0 ? 1 : 0; save(); poiLoad(true); close(); };
   document.querySelectorAll('#panel [data-l]').forEach(b => b.onclick = () => { S.layer = b.dataset.l; save(); applyLayer(); close(); });
 };
+/* ---------- Sınırlar: il, ilçe, köy / mahalle (OpenStreetMap) ---------- */
+const bndLayer = L.layerGroup().addTo(map);
+let bndT = null, bndKey = '', bndData = [], bndBusy = false;
+const BND = { 4: { color: '#ffffff', weight: 4, opacity: .9, dashArray: '10 6' }, 6: { color: '#ff9f43', weight: 3, opacity: .95 }, 8: { color: '#ffe14d', weight: 2, opacity: .85, dashArray: '6 5' } };
+map.on('moveend', () => { clearTimeout(bndT); bndT = setTimeout(bndLoad, 800); });
+async function bndLoad(force) {
+  const z = map.getZoom();
+  if (S.bnd === 0 || z < 9) { bndLayer.clearLayers(); bndKey = ''; return; }
+  const lv = z >= 12 ? '4|6|8|9|10' : '4|6';
+  const b = map.getBounds().pad(z >= 12 ? 0.4 : 0.6), r = v => v.toFixed(3), box = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(r), key = lv + '#' + box.join(',');
+  const old = bndKey.split('#');
+  if (!force && bndKey && old[0] === lv && old[1].split(',').every((v, i) => i < 2 ? +v <= +box[i] : +v >= +box[i])) { bndDraw(); return; }
+  if (bndBusy) return; bndBusy = true;
+  const q = '[out:json][timeout:40];rel["boundary"="administrative"]["admin_level"~"^(' + lv + ')$"](' + box.join(',') + ');out geom(' + box.join(',') + ');';
+  try {
+    const j = await (await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(q) })).json();
+    bndData = (j.elements || []).map(e => {
+      const t = e.tags || {}, al = +t.admin_level, lines = [];
+      (e.members || []).forEach(m => { if (m.type === 'way' && m.geometry && m.geometry.length > 1 && m.role !== 'subarea') lines.push(m.geometry.filter(Boolean).map(g => [g.lat, g.lon])); });
+      let lab = null; const lb = (e.members || []).find(m => (m.role === 'label' || m.role === 'admin_centre') && m.type === 'node' && m.lat);
+      if (lb) lab = [lb.lat, lb.lon];
+      return { al: al >= 8 ? 8 : al, n: (t['name:tr'] || t.name || '').replace(/\s+(Mahallesi|Köyü)$/i, ''), lines, lab };
+    }).filter(x => x.lines.length);
+    bndKey = key; bndDraw();
+  } catch (e) { /* bağlantı yoksa sessiz geç */ }
+  bndBusy = false;
+}
+function bndDraw() {
+  bndLayer.clearLayers(); const z = map.getZoom(), vb = map.getBounds();
+  bndData.slice().sort((a, b) => b.al - a.al).forEach(x => {
+    if (x.al === 8 && z < 12) return;
+    const st = Object.assign({ interactive: false, zIndex: 20 - x.al }, BND[x.al] || BND[8]);
+    x.lines.forEach(ln => L.polyline(ln, st).addTo(bndLayer));
+    if (!x.n || (x.al === 4) || (x.al === 6 && z > 12) || (x.al === 8 && z < 13)) return;
+    let at = x.lab;
+    if (!at || !vb.contains(at)) { let n = 0, la = 0, lo = 0; x.lines.forEach(ln => ln.forEach(p => { if (vb.contains(p)) { la += p[0]; lo += p[1]; n++; } })); if (!n) return; at = [la / n, lo / n]; if (x.lab && !vb.contains(x.lab)) {} }
+    L.marker(at, { icon: L.divIcon({ className: '', iconSize: [0, 0], html: '<div class="bl i' + x.al + '">' + esc(x.n) + '</div>' }), interactive: false, keyboard: false }).addTo(bndLayer);
+  });
+}
+setTimeout(() => bndLoad(true), 1500);
 /* ---------- Yerler (OpenStreetMap): benzinlik, market, lokanta, eczane, cami… ---------- */
 const poiLayer = L.layerGroup().addTo(map);
 const POI_T = { fuel: ['⛽', 'Benzinlik'], restaurant: ['🍽️', 'Lokanta'], fast_food: ['🍔', 'Büfe'], cafe: ['☕', 'Kahvehane / kafe'], pharmacy: ['💊', 'Eczane'], hospital: ['🏥', 'Hastane'], clinic: ['🏥', 'Sağlık ocağı'], doctors: ['🩺', 'Doktor'], place_of_worship: ['🕌', 'Cami'], school: ['🏫', 'Okul'], bank: ['🏦', 'Banka'], atm: ['🏧', 'ATM'], post_office: ['📮', 'PTT'], police: ['🚓', 'Karakol'], townhall: ['🏛️', 'Muhtarlık / belediye'], veterinary: ['🐾', 'Veteriner'], marketplace: ['🧺', 'Pazar yeri'], car_repair: ['🔧', 'Oto tamir'], tyres: ['🛞', 'Lastikçi'], supermarket: ['🛒', 'Market'], convenience: ['🛒', 'Bakkal'], bakery: ['🥖', 'Fırın'], butcher: ['🥩', 'Kasap'], agrarian: ['🌾', 'Zirai / yem bayi'], hardware: ['🔨', 'Hırdavat'], farm: ['🚜', 'Çiftlik'], hotel: ['🏨', 'Otel'], truck_stop: ['🚛', 'Tır parkı'], parking: ['🅿️', 'Otopark'] };
@@ -724,7 +767,7 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeout(() => { if (!S.cust.length && !S.pins.length && !$('sheet').classList.contains('on')) help(); }, 600);
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
-const APP_VER = '202611231603';
+const APP_VER = '202611231606';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
