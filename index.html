@@ -35,6 +35,12 @@ button{background:none;border:0;padding:0;cursor:pointer}
 .tb b{font-size:21px;line-height:1}
 .tb[aria-pressed=true]{background:var(--green);color:#06210f}
 .tb:disabled{opacity:.35}
+@media (min-width:700px){
+.bar{left:0;right:auto;top:0;bottom:0;padding:10px;flex-direction:column;justify-content:center;align-items:flex-start}
+.bar>div{flex-direction:column;max-height:calc(100vh - 20px);overflow-y:auto;overflow-x:hidden}
+.tb{width:64px;min-width:64px}
+.hint{bottom:16px}
+}
 .hint{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:999;background:rgba(15,26,20,.9);border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:13.5px;max-width:92vw;text-align:center;display:none}
 .toast{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 64px);z-index:3000;background:#fff;color:#111;border-radius:12px;padding:10px 14px;font-size:14px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.4);display:none;max-width:92vw;text-align:center}
 .sheet{position:fixed;inset:0;z-index:2000;display:none;align-items:flex-end;justify-content:center}
@@ -98,7 +104,7 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611231609"></script>
+<script src="gshim.js?v=202611231612"></script>
 <script>
 function APP() {
 const KEY = 'kumes-harita-v1';
@@ -167,7 +173,7 @@ map.on('zoomend', drawPins);
 
 /* ---------- Mod ---------- */
 let mode = 'pan';
-const HINTS = { route: 'Gideceğin yere dokun ya da bir kümese bas. Yol üstündeki kümesler durak olarak listelenir.', draw: (matchMedia('(pointer:fine)').matches ? 'Sol tık basılı: yeşil çiz · Sağ tık basılı: haritayı kaydır · Tekerlek: yakınlaştır · Çift tık: kümes ekle' : 'Tek parmakla çiz, içi yeşile boyanır. İki parmakla kaydır/yakınlaştır. İpucu: Gez’deyken soldaki düğmeyi basılı tutarsan, tuttuğun sürece çizersin.'), pin: 'Kümesin üstüne dokun.', circle: 'Merkeze dokun ya da bir kümese dokun.' };
+const HINTS = { route: 'Gideceğin yere dokun ya da bir kümese bas. Yol üstündeki kümesler durak olarak listelenir.', draw: (matchMedia('(pointer:fine)').matches ? '' : 'Tek parmakla çiz, içi yeşile boyanır. İki parmakla kaydır/yakınlaştır. İpucu: Gez’deyken soldaki düğmeyi basılı tutarsan, tuttuğun sürece çizersin.'), pin: 'Kümesin üstüne dokun.', circle: 'Merkeze dokun ya da bir kümese dokun.' };
 function setMode(m) {
   mode = m; document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m));
   document.body.classList.toggle('drawing', m === 'draw');
@@ -767,7 +773,7 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeout(() => { if (!S.cust.length && !S.pins.length && !$('sheet').classList.contains('on')) help(); }, 600);
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
-const APP_VER = '202611231609';
+const APP_VER = '202611231612';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
