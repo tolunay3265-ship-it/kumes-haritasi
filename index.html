@@ -98,7 +98,7 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611231606"></script>
+<script src="gshim.js?v=202611231609"></script>
 <script>
 function APP() {
 const KEY = 'kumes-harita-v1';
@@ -151,7 +151,7 @@ const custById = id => S.cust.find(c => c.i === id);
 const PST = { '': '❓ Bilinmiyor', kapali: '🚫 Kümes kapanmış', degil: '✖ Kümes değil' };
 const yerTxt = p => [p.k, p.c, p.il].filter(Boolean).join(' / ');
 function pinLabel(p) { const c = p.lead && custById(p.lead); return c ? c.n : (p.name || (p.st === 'kapali' ? 'Kapanmış kümes' : p.st === 'degil' ? 'Kümes değil' : 'Bilinmeyen kümes') + (p.k ? ' · ' + p.k : '')); }
-function pinCls(p) { const c = p.lead && custById(p.lead); return p.st === 'kapali' ? 'x' : p.st === 'degil' ? 'n' : !p.lead ? 'q' : c && c.s === 'sale' ? 's' : 'c'; }
+function pinCls(p) { const c = p.lead && custById(p.lead); return p.st === 'kapali' ? 'x' : p.st === 'degil' ? 'n' : !p.lead ? (p.ph ? 'c' : 'q') : c && c.s === 'sale' ? 's' : 'c'; }
 function drawPins() {
   pinLayer.clearLayers();
   S.pins.forEach(p => {
@@ -532,8 +532,8 @@ const BND = { 4: { color: '#ffffff', weight: 4, opacity: .9, dashArray: '10 6' }
 map.on('moveend', () => { clearTimeout(bndT); bndT = setTimeout(bndLoad, 800); });
 async function bndLoad(force) {
   const z = map.getZoom();
-  if (S.bnd === 0 || z < 9) { bndLayer.clearLayers(); bndKey = ''; return; }
-  const lv = z >= 12 ? '4|6|8|9|10' : '4|6';
+  if (S.bnd === 0 || z < 7) { bndLayer.clearLayers(); bndKey = ''; return; }
+  const lv = z >= 12 ? '4|6|8|9|10' : z >= 9 ? '4|6' : '4';
   const b = map.getBounds().pad(z >= 12 ? 0.4 : 0.6), r = v => v.toFixed(3), box = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(r), key = lv + '#' + box.join(',');
   const old = bndKey.split('#');
   if (!force && bndKey && old[0] === lv && old[1].split(',').every((v, i) => i < 2 ? +v <= +box[i] : +v >= +box[i])) { bndDraw(); return; }
@@ -549,7 +549,7 @@ async function bndLoad(force) {
       return { al: al >= 8 ? 8 : al, n: (t['name:tr'] || t.name || '').replace(/\s+(Mahallesi|Köyü)$/i, ''), lines, lab };
     }).filter(x => x.lines.length);
     bndKey = key; bndDraw();
-  } catch (e) { /* bağlantı yoksa sessiz geç */ }
+  } catch (e) { if (!window.bndErr) { window.bndErr = 1; toast('Sınırlar yüklenemedi, biraz sonra tekrar denenecek'); } }
   bndBusy = false;
 }
 function bndDraw() {
@@ -767,7 +767,7 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeout(() => { if (!S.cust.length && !S.pins.length && !$('sheet').classList.contains('on')) help(); }, 600);
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
-const APP_VER = '202611231606';
+const APP_VER = '202611231609';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
