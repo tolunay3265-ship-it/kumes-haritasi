@@ -119,7 +119,7 @@ body.kare .kbtns{gap:4px}body.kare .kbtns button{padding:5px 9px;font-size:13px}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611232041"></script>
+<script src="gshim.js?v=202611232107"></script>
 <script>
 /* Hata olursa ekranın üstünde kırmızı yazı göster (beyaz ekranda ne olduğunu görebilelim) */
 (function () { const show = m => { try { let d = document.getElementById('errbox'); if (!d) { d = document.createElement('div'); d.id = 'errbox'; d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99999;background:#b00020;color:#fff;font:14px/1.4 system-ui;padding:10px 12px;border-radius:10px;white-space:pre-wrap;max-height:40vh;overflow:auto'; d.onclick = () => d.remove(); (document.body || document.documentElement).appendChild(d); } d.textContent = 'HATA (fotoğrafını Claude\'a at): ' + m + '\nsürüm ' + (window.APP_VER_TXT || '?'); } catch (e) {} };
@@ -260,14 +260,14 @@ document.addEventListener('gesturestart', ev => { if (mode === 'draw') ev.preven
 let wheelT = 0;
 mapEl.addEventListener('wheel', ev => { if (mode !== 'draw' || !window.GOOG) return; ev.preventDefault(); ev.stopPropagation(); const n = Date.now(); if (n - wheelT < 180) return; wheelT = n; map.setZoom(Math.max(3, Math.min(20, map.getZoom() + (ev.deltaY < 0 ? 1 : -1)))); }, { passive: false, capture: true });
 mapEl.addEventListener('pointerdown', ev => {
-  if (ev.pointerType === 'mouse' && ev.button === 2) { ev.preventDefault(); rpan = { x: ev.clientX, y: ev.clientY }; try { mapEl.setPointerCapture(ev.pointerId); } catch (e) {} return; }
+  if (ev.pointerType === 'mouse' && ev.button === 2) { ev.preventDefault(); rpan = { x: ev.clientX, y: ev.clientY, sx: ev.clientX, sy: ev.clientY }; try { mapEl.setPointerCapture(ev.pointerId); } catch (e) {} return; }
   if (mode !== 'draw' || path || (ev.pointerType === 'mouse' ? ev.button !== 0 : ev.pointerType === 'touch' ? touches.size > 1 : !ev.isPrimary)) return;
   ev.preventDefault(); drawId = ev.pointerId; path = [ptLL(ev)]; tmp = L.polyline(path, { color: '#2fd36b', weight: 4, dashArray: '6 6' }).addTo(map);
   try { mapEl.setPointerCapture(ev.pointerId); } catch (e) {}
 }, { passive: false, capture: true });
-mapEl.addEventListener('pointermove', ev => { if (rpan) { map.panBy([rpan.x - ev.clientX, rpan.y - ev.clientY], { animate: false }); rpan = { x: ev.clientX, y: ev.clientY }; return; } if (!path || ev.pointerId !== drawId) return; ev.preventDefault(); const ll = ptLL(ev); const last = path[path.length - 1]; if (map.latLngToContainerPoint(last).distanceTo(map.latLngToContainerPoint(ll)) < 4) return; path.push(ll); tmp.setLatLngs(path); }, { passive: false, capture: true });
+mapEl.addEventListener('pointermove', ev => { if (rpan) { map.panBy([rpan.x - ev.clientX, rpan.y - ev.clientY], { animate: false }); rpan.x = ev.clientX; rpan.y = ev.clientY; return; } if (!path || ev.pointerId !== drawId) return; ev.preventDefault(); const ll = ptLL(ev); const last = path[path.length - 1]; if (map.latLngToContainerPoint(last).distanceTo(map.latLngToContainerPoint(ll)) < 4) return; path.push(ll); tmp.setLatLngs(path); }, { passive: false, capture: true });
 const endDraw = ev => {
-  if (rpan) { rpan = null; return; }
+  if (rpan) { const r0 = rpan; rpan = null; if (ev && document.body.classList.contains('kare') && Math.hypot(ev.clientX - r0.sx, ev.clientY - r0.sy) < 6) kLupe(ptLL(ev)); return; }
   if (!path || (ev && ev.pointerId !== drawId)) return; const pts = path; path = null; map.removeLayer(tmp); tmp = null;
   if (pts.length < 6) return;
   const ring = pts.map(p => [p.lng, p.lat]); ring.push(ring[0]);
@@ -633,6 +633,7 @@ function kareStart() {
 function kareOn() { const K = S.kare; if (!K) return; kUse(K); K.done = K.done || []; kPrep(K); document.body.classList.add('kare'); setMode('pin'); kDrawDone(); kDrawReg(); kShow(); }
 function kareOff() { document.body.classList.remove('kare'); if (kLayer) { map.removeLayer(kLayer); kLayer = null; } if (kRegL) { map.removeLayer(kRegL); kRegL = null; } setMode('pan'); kCommit(); }
 function kShow() {
+  kZoomed = false;
   const K = S.kare; if (!K) return kareOff();
   while (K.i < K.cells.length && K.i >= 0 && !K.back && kDone(K.cells[K.i])) K.i++;
   K.back = false;
@@ -648,6 +649,13 @@ function kShow() {
   } else map.fitBounds(bb);
   $('kno').textContent = 'Kare ' + (K.i + 1) + ' / ' + K.cells.length + (K.found ? ' · ' + K.found + ' kümes' : '');
   $('kprev').disabled = K.i === 0;
+}
+// Taramada sağ tık = büyüteç: bir basış tıklanan yere yakınlaşır, bir daha basınca kareye geri döner
+let kZoomed = false;
+function kLupe(ll) {
+  if (!S.kare) return;
+  if (kZoomed) { kZoomed = false; kShow(); return; }
+  kZoomed = true; map.setView([ll.lat, ll.lng], Math.min(20, map.getZoom() + 2));
 }
 function kNext() {
   const K = S.kare; if (!K || kBusy) return; kBusy = true;
@@ -1010,7 +1018,7 @@ if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeo
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
 window.APP_VER_TXT = document.currentScript ? '' : '';
-const APP_VER = '202611232041';
+const APP_VER = '202611232107';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { let n = 0; try { n = +(sessionStorage.getItem('kh-up-' + t) || 0); sessionStorage.setItem('kh-up-' + t, n + 1); } catch (e) {} if (n >= 2) return; const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 window.APP_VER_TXT = APP_VER; checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
