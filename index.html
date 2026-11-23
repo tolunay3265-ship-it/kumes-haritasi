@@ -112,7 +112,7 @@ body.kare .kbar{display:flex}body.kare .bar,body.kare .send,body.kare #tog,body.
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611231836"></script>
+<script src="gshim.js?v=202611231849"></script>
 <script>
 /* Hata olursa ekranın üstünde kırmızı yazı göster (beyaz ekranda ne olduğunu görebilelim) */
 (function () { const show = m => { try { let d = document.getElementById('errbox'); if (!d) { d = document.createElement('div'); d.id = 'errbox'; d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99999;background:#b00020;color:#fff;font:14px/1.4 system-ui;padding:10px 12px;border-radius:10px;white-space:pre-wrap;max-height:40vh;overflow:auto'; d.onclick = () => d.remove(); (document.body || document.documentElement).appendChild(d); } d.textContent = 'HATA (fotoğrafını Claude\'a at): ' + m + '\nsürüm ' + (window.APP_VER_TXT || '?'); } catch (e) {} };
@@ -129,6 +129,11 @@ const norm = s => String(s || '').toLocaleLowerCase('tr').normalize('NFD').repla
 // S.areas: taranan alanlar (GeoJSON Polygon/MultiPolygon feature listesi) · S.pins: kümes işaretleri · S.cust: Görev Matrisi'nden gelen müşteri listesi
 let S = { v: 1, areas: [], pins: [], cust: [], view: null, layer: 'satlbl', upd: 0 };
 try { const r = JSON.parse(localStorage.getItem(KEY) || 'null'); if (r && r.v) S = Object.assign(S, r); } catch (e) {}
+// Baştan tarama (23.11.2026): bu tarihten önce boyanmış bütün yeşil alanlar silinir, kümesler kalır. Her cihazda ve Görev Matrisi'nden gelende de geçerli.
+const AREA_RESET = 1795448835297;
+const areaNew = a => !!(a && a.properties && a.properties.t && a.properties.t >= AREA_RESET);
+if (!S.areaReset || S.areaReset < AREA_RESET) { const n = S.areas.length; S.areas.forEach(a => { if (a.properties && a.properties.id) S.del = (S.del || []).concat(a.properties.id).slice(-500); }); S.areas = []; S.kare = null; S.fh = 1; S.areaReset = AREA_RESET; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} if (n) setTimeout(() => { try { toast('Yeşil alanlar temizlendi · kümesler duruyor · baştan taramaya hazır'); } catch (e) {} }, 1500); }
+S.areas = S.areas.filter(areaNew);
 if (!S.lv2) { S.layer = 'satlbl'; S.lv2 = 1; }
 const hist = [];
 const markDel = id => { if (!id) return; S.del = (S.del || []).concat(id).slice(-500); };
@@ -576,10 +581,18 @@ function kCommit(cb) {
   setTimeout(() => {
     try {
       let u = null; keys.forEach(k => { const [la, lo] = k.split(',').map(Number); const c = kCell([la, lo]); try { u = u ? (turf.union(u, c) || u) : c; } catch (e) {} });
-      if (u) { snapshot(); u.properties = { id: uid(), t: Date.now(), note: 'Kare kare' }; S.areas.push(u); }
+      if (u) u = kClip(u, K && K.reg);
+      if (u) { snapshot(); u.properties = { id: uid(), t: Date.now(), note: 'Kare kare' + (K && K.reg && !K.reg.il ? ' · ' + K.reg.n : '') }; S.areas.push(u); }
     } catch (e) {}
     if (K) K.done = []; save(); drawAreas(); if (kDoneL) kDoneL.clearLayers(); if (cb) cb();
   }, 60);
+}
+// Yeşil alan sınırı aşmasın: köy/mahalle seçildiyse onun sınırına, ekran taramasında il sınırına kırpılır
+function kClip(u, reg) {
+  try {
+    if (!reg) return u;
+    return turf.intersect(u, regFeat(reg));
+  } catch (e) { return u; }
 }
 function kareStart() {
   const go = () => {
@@ -589,11 +602,15 @@ function kareStart() {
     const cells = [];
     for (let r = rows - 1; r >= 0; r--) { const row = []; for (let c = 0; c < cols; c++) row.push([+(s0 + r * KARE.dLat).toFixed(5), +(w0 + c * KARE.dLng).toFixed(5)]); if ((rows - 1 - r) % 2) row.reverse(); cells.push(...row); }
     S.kare = null; kPrep({ cells });
-    const todo = cells.filter(c => !kInArea(c));
+    const cy = (s0 + n0) / 2, cx = (w0 + e0) / 2, il = bndAll ? bndAll.il.find(x => { try { return cy >= x.bb[0] && cy <= x.bb[2] && cx >= x.bb[1] && cx <= x.bb[3] && turf.booleanPointInPolygon([cx, cy], regFeat(x)); } catch (e) { return false; } }) : null;
+    const ilF = il ? regFeat(il) : null, m = 0.0004;
+    const inIl = c => !ilF || [[c[1] + KARE.dLng / 2, c[0] + KARE.dLat / 2], [c[1] + m, c[0] + m], [c[1] + KARE.dLng - m, c[0] + m], [c[1] + m, c[0] + KARE.dLat - m], [c[1] + KARE.dLng - m, c[0] + KARE.dLat - m]].some(pt => { try { return turf.booleanPointInPolygon(pt, ilF); } catch (e) { return false; } });
+    const todo = cells.filter(c => inIl(c) && !kInArea(c));
     if (!todo.length) { toast('Bu bölgenin tamamı zaten taranmış ✓'); return; }
-    S.kare = { cells: todo, i: 0, found: 0, done: [], t: Date.now() }; save(); kareOn();
+    S.kare = { cells: todo, i: 0, found: 0, done: [], t: Date.now(), reg: il ? { n: il.n, r: il.r, il: 1 } : null }; save(); kareOn();
   };
-  if (S.kare && S.kare.done && S.kare.done.length) kCommit(go); else go();
+  const go2 = () => { if (bndAll) go(); else { toast('Sınırlar yükleniyor…'); bndFile().then(go); } };
+  if (S.kare && S.kare.done && S.kare.done.length) kCommit(go2); else go2();
 }
 function kareOn() { const K = S.kare; if (!K) return; K.done = K.done || []; kPrep(K); document.body.classList.add('kare'); setMode('pin'); kDrawDone(); kDrawReg(); kShow(); }
 function kareOff() { document.body.classList.remove('kare'); if (kLayer) { map.removeLayer(kLayer); kLayer = null; } if (kRegL) { map.removeLayer(kRegL); kRegL = null; } setMode('pan'); kCommit(); }
@@ -633,7 +650,7 @@ function regAt(ll) {
 }
 function kDrawReg() {
   if (kRegL) { map.removeLayer(kRegL); kRegL = null; }
-  const K = S.kare; if (!K || !K.reg) return;
+  const K = S.kare; if (!K || !K.reg || K.reg.il) return;
   kRegL = L.layerGroup().addTo(map);
   K.reg.r.forEach(ring => L.polyline(ring.concat([ring[0]]), { color: '#33d6ff', weight: 4, opacity: 1, interactive: false, zIndex: 25 }).addTo(kRegL));
 }
@@ -670,7 +687,7 @@ function kPickAt(ll) {
   $('kreg').onclick = () => { close(); kareStartReg(r); };
 }
 function kListOpen() {
-  if (!bndAll) { bndLoad(); toast('Sınırlar yükleniyor, birazdan tekrar dene'); return; }
+  if (!bndAll) { toast('Sınırlar yükleniyor…'); bndFile().then(d => { if (d) kListOpen(); }); return; }
   const L0 = regList();
   if (!L0.length) { toast(map.getZoom() < 12 ? 'Ekranda köy/mahalle yok. Biraz yakınlaşıp tekrar dene' : 'Ekranda köy/mahalle sınırı bulunamadı', 4000); return; }
   open('<div class="ph"><h3>Köy / mahalle seç</h3><button class="x" data-close>✕</button></div><input class="field" id="kq" placeholder="Ara…"><div class="list" id="kls"></div>');
@@ -704,14 +721,15 @@ const BND = { 4: { color: '#ff1f1f', opacity: 1 }, 6: { color: '#ff9f1a', opacit
 const bbOf = rs => { let a = 90, b = 180, c = -90, d = -180; rs.forEach(r => r.forEach(p => { if (p[0] < a) a = p[0]; if (p[0] > c) c = p[0]; if (p[1] < b) b = p[1]; if (p[1] > d) d = p[1]; })); return [a, b, c, d]; };
 const bbHit = (x, v) => !(x[2] < v.getSouth() || x[0] > v.getNorth() || x[3] < v.getWest() || x[1] > v.getEast());
 map.on('moveend', () => { clearTimeout(bndT); bndT = setTimeout(bndLoad, 500); });
+let bndP = null;
+function bndFile() {
+  if (bndAll) return Promise.resolve(bndAll);
+  if (!bndP) { window.bndSt = 'dosya yükleniyor'; bndP = fetch('bnd.json?v=' + APP_VER).then(r => r.json()).then(d => { ['il', 'ilce', 'mah'].forEach(k => d[k].forEach(x => { x.bb = bbOf(x.r); })); bndAll = d; window.bndErr = 0; window.bndSt = 'dosya hazır'; return d; }).catch(e => { window.bndErr = 1; window.bndSt = 'dosya: ' + String(e.message || e).slice(0, 40); bndP = null; return null; }); }
+  return bndP;
+}
 async function bndLoad() {
   if (S.bnd === 0) { bndLayer.clearLayers(); return; }
-  if (!bndAll) {
-    if (bndBusy) return; bndBusy = true; window.bndSt = 'dosya yükleniyor';
-    try { const d = await (await fetch('bnd.json?v=' + APP_VER)).json(); ['il', 'ilce', 'mah'].forEach(k => d[k].forEach(x => { x.bb = bbOf(x.r); })); bndAll = d; window.bndErr = 0; window.bndSt = 'dosya hazır'; }
-    catch (e) { window.bndErr = 1; window.bndSt = 'dosya: ' + String(e.message || e).slice(0, 40); bndBusy = false; return; }
-    bndBusy = false;
-  }
+  if (!bndAll) { await bndFile(); if (!bndAll) return; }
   bndDraw(); koyLoad();
 }
 function bndDraw() {
@@ -887,7 +905,7 @@ function importPayload(o) {
       (o.full.pins || []).forEach(p => { if (dl.has(p.id)) return; const m = ownP[p.id]; if (!m) { S.pins.push(p); restored = true; } else if ((p.upd || p.t || 0) > (m.upd || m.t || 0)) { Object.assign(m, p); restored = true; } });
       const ownA = new Set(S.areas.map(a => a.properties && a.properties.id).filter(Boolean)), key = a => JSON.stringify(a.geometry);
       const ownG = new Set(S.areas.map(key));
-      (o.full.areas || []).forEach(a => { if ((a.properties && dl.has(a.properties.id)) || (a.properties && ownA.has(a.properties.id)) || ownG.has(key(a))) return; try { const t = a.properties && a.properties.t, n = a.properties && a.properties.note; addArea({ geometry: a.geometry }); markDel(a.properties && a.properties.id); const last = S.areas[S.areas.length - 1]; if (t) last.properties.t = Math.min(last.properties.t, t); if (n && !last.properties.note) last.properties.note = n; restored = true; } catch (e) {} });
+      (o.full.areas || []).forEach(a => { if (!areaNew(a) || (a.properties && dl.has(a.properties.id)) || (a.properties && ownA.has(a.properties.id)) || ownG.has(key(a))) return; try { const t = a.properties && a.properties.t, n = a.properties && a.properties.note; addArea({ geometry: a.geometry }); markDel(a.properties && a.properties.id); const last = S.areas[S.areas.length - 1]; if (t) last.properties.t = Math.min(last.properties.t, t); if (n && !last.properties.note) last.properties.note = n; restored = true; } catch (e) {} });
     }
     let linked = 0;
     S.cust.forEach(c => { if (!c.mp) return; const pin = S.pins.find(p => p.id === c.mp); if (pin && !pin.lead && !/^❓ /.test(c.n)) { pin.lead = c.i; linked++; } });
@@ -960,7 +978,7 @@ if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeo
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
 window.APP_VER_TXT = document.currentScript ? '' : '';
-const APP_VER = '202611231836';
+const APP_VER = '202611231849';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { let n = 0; try { n = +(sessionStorage.getItem('kh-up-' + t) || 0); sessionStorage.setItem('kh-up-' + t, n + 1); } catch (e) {} if (n >= 2) return; const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 window.APP_VER_TXT = APP_VER; checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
