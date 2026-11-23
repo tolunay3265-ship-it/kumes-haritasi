@@ -548,7 +548,12 @@ async function bndLoad(force) {
   if (bndBusy) return; bndBusy = true;
   const q = '[out:json][timeout:40];rel["boundary"="administrative"]["admin_level"~"^(' + lv + ')$"](' + box.join(',') + ');out geom(' + box.join(',') + ');';
   try {
-    const j = await (await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(q) })).json();
+    let j = null;
+    for (const u of ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter']) {
+      try { const r = await fetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q) }); if (r.ok) { j = await r.json(); break; } } catch (e) {}
+    }
+    if (!j) throw new Error('overpass');
+    window.bndErr = 0;
     bndData = (j.elements || []).map(e => {
       const t = e.tags || {}, al = +t.admin_level, lines = [];
       (e.members || []).forEach(m => { if (m.type === 'way' && m.geometry && m.geometry.length > 1 && m.role !== 'subarea') lines.push(m.geometry.filter(Boolean).map(g => [g.lat, g.lon])); });
