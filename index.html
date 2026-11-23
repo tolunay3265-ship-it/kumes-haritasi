@@ -119,7 +119,7 @@ body.kare .kbtns{gap:4px}body.kare .kbtns button{padding:5px 9px;font-size:13px}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611232107"></script>
+<script src="gshim.js?v=202611232110"></script>
 <script>
 /* Hata olursa ekranın üstünde kırmızı yazı göster (beyaz ekranda ne olduğunu görebilelim) */
 (function () { const show = m => { try { let d = document.getElementById('errbox'); if (!d) { d = document.createElement('div'); d.id = 'errbox'; d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99999;background:#b00020;color:#fff;font:14px/1.4 system-ui;padding:10px 12px;border-radius:10px;white-space:pre-wrap;max-height:40vh;overflow:auto'; d.onclick = () => d.remove(); (document.body || document.documentElement).appendChild(d); } d.textContent = 'HATA (fotoğrafını Claude\'a at): ' + m + '\nsürüm ' + (window.APP_VER_TXT || '?'); } catch (e) {} };
@@ -141,6 +141,8 @@ const AREA_RESET = 1795448835297;
 const areaNew = a => !!(a && a.properties && a.properties.t && a.properties.t >= AREA_RESET);
 if (!S.areaReset || S.areaReset < AREA_RESET) { const n = S.areas.length; S.areas.forEach(a => { if (a.properties && a.properties.id) S.del = (S.del || []).concat(a.properties.id).slice(-500); }); S.areas = []; S.kare = null; S.fh = 1; S.areaReset = AREA_RESET; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} if (n) setTimeout(() => { try { toast('Yeşil alanlar temizlendi · kümesler duruyor · baştan taramaya hazır'); } catch (e) {} }, 1500); }
 S.areas = S.areas.filter(areaNew);
+// Bir kerelik: üst üste binmiş yeşil alanları birleştir (iki kat yeşil görünmesin)
+if (!S.ov1) { try { const out = []; S.areas.forEach(a => { let m = a; for (let i = out.length - 1; i >= 0; i--) { let hit = false; try { hit = turf.booleanOverlap(out[i], m) || turf.booleanContains(out[i], m) || turf.booleanContains(m, out[i]) || !!turf.intersect(out[i], m); } catch (e) {} if (hit) { try { const u = turf.union(out[i], m); if (u) { (out[i].properties && out[i].properties.id) && (S.del = (S.del || []).concat(out[i].properties.id).slice(-500)); (m.properties && m.properties.id) && (S.del = (S.del || []).concat(m.properties.id).slice(-500)); u.properties = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), t: Date.now(), note: [out[i].properties && out[i].properties.note, m.properties && m.properties.note].filter(Boolean).join(' · ') }; m = u; out.splice(i, 1); } } catch (e) {} } } out.push(m); }); S.areas = out; } catch (e) {} S.ov1 = 1; }
 if (!S.lv2) { S.layer = 'satlbl'; S.lv2 = 1; }
 const hist = [];
 const markDel = id => { if (!id) return; S.del = (S.del || []).concat(id).slice(-500); };
@@ -559,7 +561,8 @@ $('lay').onclick = () => {
 /* ---------- Kare kare tarama: ekrandaki bölge karelere bölünür, sırayla gösterilir ---------- */
 const KARE = { dLat: 0.0040, dLng: 0.0051 };
 let kLayer = null, kBusy = false;
-const kCell = c => { const [la, lo] = c; return turf.polygon([[[lo, la], [lo + KARE.dLng, la], [lo + KARE.dLng, la + KARE.dLat], [lo, la + KARE.dLat], [lo, la]]]); };
+const r5 = x => Math.round(x * 1e5) / 1e5;
+const kCell = c => { const la = r5(c[0]), lo = r5(c[1]), la2 = r5(la + KARE.dLat), lo2 = r5(lo + KARE.dLng); return turf.polygon([[[lo, la], [lo2, la], [lo2, la2], [lo, la2], [lo, la]]]); };
 // Taranmış mı kontrolü: alanlar bir kez ekrandaki bölgeye kırpılır (dev alanlar küçülür), sonra sadece nokta kontrolü yapılır
 let kAB = null, kDoneL = null;
 const kKey = c => c[0] + ',' + c[1];
@@ -576,10 +579,19 @@ function kInArea(c) {
 }
 function kDone(c) { const K = S.kare; if (K && K.done && K.done.includes(kKey(c))) return true; if (!kAB) return false; return kInArea(c); }
 // Geçilen kareler önce hafif yeşil karelerle çizilir; büyük alanla birleştirme tarama bitince tek seferde yapılır (donmasın)
-function kDrawDone() {
-  if (!kDoneL) kDoneL = L.geoJSON(null, { style: { color: '#2fd36b', weight: 1, fillColor: '#2fd36b', fillOpacity: .32 }, interactive: false }).addTo(map);
-  kDoneL.clearLayers(); const K = S.kare; if (!K || !K.done) return;
-  K.done.forEach(k => { const [la, lo] = k.split(',').map(Number); kDoneL.addData(kCell([la, lo])); });
+let kDoneU = null;
+function kDoneBuild() { const K = S.kare; kDoneU = null; ((K && K.done) || []).forEach(k => { const [la, lo] = k.split(',').map(Number); const c = kCell([la, lo]); try { kDoneU = kDoneU ? (turf.union(kDoneU, c) || kDoneU) : c; } catch (e) {} }); }
+function kDrawDone(add) {
+  if (!kDoneL) kDoneL = L.geoJSON(null, { style: { color: '#2fd36b', weight: 2, fillColor: '#2fd36b', fillOpacity: .32 }, interactive: false }).addTo(map);
+  const K = S.kare;
+  if (add) { try { kDoneU = kDoneU ? (turf.union(kDoneU, add) || kDoneU) : add; } catch (e) { kDoneBuild(); } } else kDoneBuild();
+  kDoneL.clearLayers(); if (K && kDoneU) kDoneL.addData(kDoneU);
+}
+// Yeni yeşil, eski yeşillerin üstüne binmesin: üst üste gelen kısım çıkarılır
+function kMinusOld(u) {
+  const bb = turf.bbox(u);
+  S.areas.forEach(a => { if (!u) return; try { const b = turf.bbox(a); if (b[2] < bb[0] || b[0] > bb[2] || b[3] < bb[1] || b[1] > bb[3]) return; u = turf.difference(u, a); } catch (e) {} });
+  return u;
 }
 function kCommit(cb) {
   const K = S.kare; const keys = (K && K.done) || [];
@@ -587,11 +599,13 @@ function kCommit(cb) {
   toast('Taranan kareler kaydediliyor…');
   setTimeout(() => {
     try {
-      let u = null; keys.forEach(k => { const [la, lo] = k.split(',').map(Number); const c = kCell([la, lo]); try { u = u ? (turf.union(u, c) || u) : c; } catch (e) {} });
+      if (!kDoneU) kDoneBuild();
+      let u = kDoneU;
       if (u) u = kClip(u, K && K.reg);
-      if (u) { snapshot(); u.properties = { id: uid(), t: Date.now(), note: 'Kare kare' + (K && K.reg && !K.reg.il ? ' · ' + K.reg.n : '') }; S.areas.push(u); }
+      if (u) u = kMinusOld(u);
+      if (u && turf.area(u) > 100) { snapshot(); u.properties = { id: uid(), t: Date.now(), note: 'Kare kare' + (K && K.reg && !K.reg.il ? ' · ' + K.reg.n : '') }; S.areas.push(u); }
     } catch (e) {}
-    if (K) K.done = []; save(); drawAreas(); if (kDoneL) kDoneL.clearLayers(); if (cb) cb();
+    kDoneU = null; if (K) K.done = []; save(); drawAreas(); if (kDoneL) kDoneL.clearLayers(); if (cb) cb();
   }, 60);
 }
 // Yeşil alan sınırı aşmasın: köy/mahalle seçildiyse onun sınırına, ekran taramasında il sınırına kırpılır
@@ -608,7 +622,7 @@ function kFit(lat) {
   const g = kGeom(), c = Math.cos(lat * Math.PI / 180), mpp0 = 156543.03 * c;
   const z = Math.max(14, Math.min(19, Math.floor(Math.log2(Math.min(g.avW, g.avH) * mpp0 / 280))));
   const mpp = mpp0 / Math.pow(2, z);
-  return { dLat: +(g.avH * mpp / 111320 * .97).toFixed(6), dLng: +(g.avW * mpp / (111320 * c) * .97).toFixed(6), z };
+  return { dLat: +(g.avH * mpp / 111320 * .97).toFixed(5), dLng: +(g.avW * mpp / (111320 * c) * .97).toFixed(5), z };
 }
 function kUse(K) { if (K && K.kd) { KARE.dLat = K.kd.dLat; KARE.dLng = K.kd.dLng; } else { KARE.dLat = KARE0.dLat; KARE.dLng = KARE0.dLng; } }
 function kareStart() {
@@ -618,7 +632,7 @@ function kareStart() {
     const rows = Math.ceil((n0 - s0) / KARE.dLat), cols = Math.ceil((e0 - w0) / KARE.dLng);
     if (rows * cols > 1500) { toast('Bölge çok büyük. Biraz yakınlaşıp tekrar dene (en fazla birkaç köy).'); return; }
     const cells = [];
-    for (let r = rows - 1; r >= 0; r--) { const row = []; for (let c = 0; c < cols; c++) row.push([+(s0 + r * KARE.dLat).toFixed(5), +(w0 + c * KARE.dLng).toFixed(5)]); if ((rows - 1 - r) % 2) row.reverse(); cells.push(...row); }
+    for (let r = rows - 1; r >= 0; r--) { const row = []; for (let c = 0; c < cols; c++) row.push([r5(r5(s0) + r * KARE.dLat), r5(r5(w0) + c * KARE.dLng)]); if ((rows - 1 - r) % 2) row.reverse(); cells.push(...row); }
     S.kare = null; kPrep({ cells });
     const cy = (s0 + n0) / 2, cx = (w0 + e0) / 2, il = bndAll ? bndAll.il.find(x => { try { return cy >= x.bb[0] && cy <= x.bb[2] && cx >= x.bb[1] && cx <= x.bb[3] && turf.booleanPointInPolygon([cx, cy], regFeat(x)); } catch (e) { return false; } }) : null;
     const ilF = il ? regFeat(il) : null, m = 0.0004;
@@ -659,7 +673,7 @@ function kLupe(ll) {
 }
 function kNext() {
   const K = S.kare; if (!K || kBusy) return; kBusy = true;
-  try { const k = kKey(K.cells[K.i]); K.done = K.done || []; if (!K.done.includes(k)) { K.done.push(k); S.chg = (S.chg || 0) + 1; } kDrawDone(); } catch (e) {}
+  try { const k = kKey(K.cells[K.i]); K.done = K.done || []; if (!K.done.includes(k)) { K.done.push(k); S.chg = (S.chg || 0) + 1; kDrawDone(kCell(K.cells[K.i])); } } catch (e) {}
   K.i++; save(); kShow(); setTimeout(() => kBusy = false, 150);
 }
 function kPrev() { const K = S.kare; if (!K || K.i === 0) return; K.i--; K.back = true; if (K.done) { K.done = K.done.filter(k => k !== kKey(K.cells[K.i])); kDrawDone(); } save(); kShow(); }
@@ -693,7 +707,7 @@ function kareStartReg(reg) {
     if (rows * cols > 6000) { toast(reg.n + ' çok büyük, kare kare taranamaz'); return; }
     const m = 0.0004, inReg = (la, lo) => [[lo + KARE.dLng / 2, la + KARE.dLat / 2], [lo + m, la + m], [lo + KARE.dLng - m, la + m], [lo + m, la + KARE.dLat - m], [lo + KARE.dLng - m, la + KARE.dLat - m]].some(pt => { try { return turf.booleanPointInPolygon(pt, f); } catch (e) { return false; } });
     const cells = [];
-    for (let r = rows - 1; r >= 0; r--) { const row = []; for (let c = 0; c < cols; c++) { const la = +(s0 + r * KARE.dLat).toFixed(5), lo = +(w0 + c * KARE.dLng).toFixed(5); if (inReg(la, lo)) row.push([la, lo]); } if ((rows - 1 - r) % 2) row.reverse(); cells.push(...row); }
+    for (let r = rows - 1; r >= 0; r--) { const row = []; for (let c = 0; c < cols; c++) { const la = r5(r5(s0) + r * KARE.dLat), lo = r5(r5(w0) + c * KARE.dLng); if (inReg(la, lo)) row.push([la, lo]); } if ((rows - 1 - r) % 2) row.reverse(); cells.push(...row); }
     if (!cells.length) { toast('Bu bölgede kare çıkmadı'); return; }
     if (cells.length > 1500) { toast(reg.n + ' çok büyük (' + cells.length + ' kare). Ekranı tara seçeneğiyle parça parça yap.'); return; }
     S.kare = null; kPrep({ cells });
@@ -1018,7 +1032,7 @@ if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeo
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
 window.APP_VER_TXT = document.currentScript ? '' : '';
-const APP_VER = '202611232107';
+const APP_VER = '202611232110';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { let n = 0; try { n = +(sessionStorage.getItem('kh-up-' + t) || 0); sessionStorage.setItem('kh-up-' + t, n + 1); } catch (e) {} if (n >= 2) return; const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 window.APP_VER_TXT = APP_VER; checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
