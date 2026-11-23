@@ -90,6 +90,8 @@ body.kare .kb{min-width:44px;font-size:16px;border-radius:10px}body.kare .kb.go{
 body.kare .kmid{flex-direction:row;justify-content:center;gap:6px;align-items:center}body.kare .kmid small{display:none}body.kare .kmid b{font-size:14px;white-space:nowrap}
 body.kare .kbtns{gap:4px}body.kare .kbtns button{padding:5px 9px;font-size:13px}
 @media (min-width:700px),(hover:hover) and (pointer:fine){body.kare .kbar{left:50%;right:auto;width:auto;min-width:360px}}
+/* Köy merkezindeki müşteriler (mor) */
+.vk{display:flex;align-items:center;gap:4px;transform:translate(-50%,-50%);white-space:nowrap;background:#7c3aed;color:#fff;border:2px solid #fff;border-radius:14px;padding:2px 8px;font:700 12px system-ui;box-shadow:0 1px 4px rgba(0,0,0,.5);cursor:pointer}.vk b{font-size:13px}
 </style>
 </head>
 <body>
@@ -119,7 +121,7 @@ body.kare .kbtns{gap:4px}body.kare .kbtns button{padding:5px 9px;font-size:13px}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611232123"></script>
+<script src="gshim.js?v=202611232146"></script>
 <script>
 /* Hata olursa ekranın üstünde kırmızı yazı göster (beyaz ekranda ne olduğunu görebilelim) */
 (function () { const show = m => { try { let d = document.getElementById('errbox'); if (!d) { d = document.createElement('div'); d.id = 'errbox'; d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99999;background:#b00020;color:#fff;font:14px/1.4 system-ui;padding:10px 12px;border-radius:10px;white-space:pre-wrap;max-height:40vh;overflow:auto'; d.onclick = () => d.remove(); (document.body || document.documentElement).appendChild(d); } d.textContent = 'HATA (fotoğrafını Claude\'a at): ' + m + '\nsürüm ' + (window.APP_VER_TXT || '?'); } catch (e) {} };
@@ -197,8 +199,45 @@ function drawPins() {
     m.on('dblclick', e => L.DomEvent.stopPropagation(e));
     m.on('dragend', () => { const ll = m.getLatLng(); snapshot(); p.lat = +ll.lat.toFixed(6); p.lng = +ll.lng.toFixed(6); delete p._drag; save(); drawPins(); toast('Yeni yeri kaydedildi'); });
   });
+  setTimeout(vDraw, 0);
 }
 map.on('zoomend', drawPins);
+/* ---------- Adresi olan, haritada kümesi işaretlenmemiş müşteriler: köy/mahalle merkezinde mor işaret ---------- */
+const vLayer = L.layerGroup().addTo(map); let vCache = {}, vPts, vBusy = false;
+function vClean(k) {
+  let t = String(k || '').split('/')[0];
+  t = t.replace(/\b(mahallesi|mah\.?|mh\.?|köyü|koyu|köy|kasabası|beldesi|mevkii|mevki|sok(ak|\.)?|sk\.?|cad(desi|\.)?|no:?\s*\d+).*$/i, '').replace(/\bmerkez\b/i, '').trim();
+  return norm(t);
+}
+async function vLoad() { if (vPts !== undefined) return vPts; if (vBusy) return null; vBusy = true; try { const r = await fetch('koy.json?v=' + APP_VER); vPts = r.ok ? (await r.json()).map(e => [norm(String(e[0]).replace(/\s+(Mahallesi|Köyü)$/i, '')), e[1], e[2], e[0]]) : null; } catch (e) { vPts = null; } vBusy = false; return vPts; }
+function vFind(c) {
+  const nk = vClean(c.k); if (!nk || !vPts) return null;
+  const key = nk + '|' + norm(c.c || '') + '|' + norm(c.il || ''); if (key in vCache) return vCache[key];
+  let box = null;
+  if (bndAll) { const ic = bndAll.ilce.find(x => norm(x.n) === norm(c.c || '')); const il = !ic && bndAll.il.find(x => norm(x.n) === norm(c.il || '')); const b = (ic || il || {}).bb; if (b) box = [b[0] - .02, b[1] - .02, b[2] + .02, b[3] + .02]; }
+  if (!box) return (vCache[key] = null);
+  const inBox = e => (e[1] >= box[0] && e[1] <= box[2] && e[2] >= box[1] && e[2] <= box[3]);
+  let v = vPts.find(e => e[0] === nk && inBox(e));
+  if (!v && box) { const ws = nk.split(' ').filter(w => w.length > 3); if (ws.length > 1) v = vPts.find(e => inBox(e) && ws.some(w => e[0] === w)); }
+  return (vCache[key] = v ? { lat: v[1], lng: v[2], n: v[3] } : null);
+}
+async function vDraw() {
+  vLayer.clearLayers(); if (S.vk === 0 || !S.cust.length) return;
+  if (map.getZoom() < 9) return;
+  if (!vPts) { if (vPts === undefined) { await vLoad(); if (!bndAll) await bndFile(); } if (!vPts) return; }
+  const has = new Set(S.pins.map(p => p.lead).filter(Boolean)), G = {};
+  S.cust.forEach(c => { if (has.has(c.i) || c.mp || c.g || /^❓ /.test(c.n || '')) return; const v = vFind(c); if (!v) return; const k = v.lat + ',' + v.lng; (G[k] = G[k] || { v, list: [] }).list.push(c); });
+  const vb = map.getBounds().pad(0.3), z = map.getZoom();
+  Object.values(G).forEach(g => { if (!vb.contains([g.v.lat, g.v.lng])) return;
+    const m = L.marker([g.v.lat, g.v.lng], { icon: L.divIcon({ className: '', iconSize: [0, 0], html: '<div class="vk">👥 <b>' + g.list.length + '</b>' + (z >= 12 ? ' ' + esc(g.v.n) : '') + '</div>' }), keyboard: false, zIndexOffset: -100 }).addTo(vLayer);
+    m.on('click', e => { L.DomEvent.stopPropagation(e); vCard(g); }); m.on('dblclick', e => L.DomEvent.stopPropagation(e)); });
+}
+function vCard(g) {
+  open('<div class="ph"><h3>👥 ' + esc(g.v.n) + ' · ' + g.list.length + ' müşteri</h3><button class="x" data-close>✕</button></div><div class="muted">Kümesleri haritada henüz işaretlenmemiş. Mor işaret köyün/mahallenin merkezinde durur, kümesin gerçek yeri değildir.</div><div class="list">' +
+    g.list.map((c, i) => '<div class="item"><div class="g"><b>' + esc(c.n) + '</b><small>' + esc([c.k, c.st, c.l].filter(Boolean).join(' · ')) + '</small></div>' + (c.p ? '<a class="btn" href="tel:' + esc(c.p) + '">📞</a>' : '') + '<button class="btn" data-vi="' + i + '">🏠 İşaretle</button></div>').join('') + '</div>');
+  document.querySelectorAll('#panel [data-vi]').forEach(b => b.onclick = () => { const c = g.list[+b.dataset.vi]; close(); window.vLead = c.i; setMode('pin'); map.setView([g.v.lat, g.v.lng], Math.max(map.getZoom(), 15)); toast(c.n + ': kümesinin üstüne dokun (bilgisayarda çift tık)'); });
+}
+map.on('moveend', () => { clearTimeout(window.vT); window.vT = setTimeout(vDraw, 300); });
 
 /* ---------- Mod ---------- */
 let mode = 'pan';
@@ -346,7 +385,7 @@ async function gPlaceCard(id, ll) {
   $('gpadd').onclick = () => pinForm({ lat: at[0], lng: at[1], lead: null, name: (d && d.n) || '', ph: (d && d.ph) || '', note: (d && d.adr) ? 'Adres: ' + d.adr : '', cnt: '', st: '' }, true);
   if (err) window.KH_PLACES_ERR = err;
 }
-function newPinAt(ll) { pinForm({ lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6), lead: null, name: '', note: '', cnt: '', st: '' }, true); }
+function newPinAt(ll) { const vl = window.vLead || null; window.vLead = null; pinForm({ lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6), lead: vl, name: '', note: '', cnt: '', st: '' }, true); }
 map.on('click', e => { if (mode === 'draw') return; clearTimeout(clickT); clickT = setTimeout(() => { clickT = null; onClick(e); }, 260); });
 function onClick(e) {
   if (window.kPick) { kPickAt(e.latlng); return; }
@@ -558,6 +597,8 @@ $('lay').onclick = () => {
   if (!window.GOOG) $('panel').insertAdjacentHTML('beforeend', '<div class="lbl">Yerler</div><button class="item" id="poit"><b style="font-size:20px">' + (S.poi !== 0 ? '☑️' : '⬜') + '</b><div class="g"><b>Benzinlik, market, lokanta… göster</b><small>Yakınlaştırınca görünür, üstüne basınca bilgileri çıkar</small></div></button>');
   $('panel').insertAdjacentHTML('beforeend', '<div class="lbl">Sınırlar</div><button class="item" id="bndt"><b style="font-size:20px">' + (S.bnd !== 0 ? '☑️' : '⬜') + '</b><div class="g"><b>İl, ilçe ve köy sınırlarını göster</b><small>Kırmızı: il · turuncu: ilçe · sarı düz: mahalle · sarı kesikli: köy (yaklaşık, yakınlaşınca)</small></div></button>');
   $('bndt').onclick = () => { S.bnd = S.bnd === 0 ? 1 : 0; save(); bndLoad(); close(); };
+  $('panel').insertAdjacentHTML('beforeend', '<div class="lbl">Müşteriler</div><button class="item" id="vkt"><b style="font-size:20px">' + (S.vk !== 0 ? '☑️' : '⬜') + '</b><div class="g"><b>Kümesi işaretlenmemiş müşterileri göster</b><small>Mor 👥: adresindeki köy/mahallenin merkezinde, kaç müşteri olduğu yazar</small></div></button>');
+  $('vkt').onclick = () => { S.vk = S.vk === 0 ? 1 : 0; save(); vDraw(); close(); };
   if ($('poit')) $('poit').onclick = () => { S.poi = S.poi === 0 ? 1 : 0; save(); poiLoad(true); close(); };
   document.querySelectorAll('#panel [data-l]').forEach(b => b.onclick = () => { S.layer = b.dataset.l; save(); applyLayer(); close(); });
 };
@@ -1037,7 +1078,7 @@ if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeo
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
 window.APP_VER_TXT = document.currentScript ? '' : '';
-const APP_VER = '202611232123';
+const APP_VER = '202611232146';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { let n = 0; try { n = +(sessionStorage.getItem('kh-up-' + t) || 0); sessionStorage.setItem('kh-up-' + t, n + 1); } catch (e) {} if (n >= 2) return; const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 window.APP_VER_TXT = APP_VER; checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
