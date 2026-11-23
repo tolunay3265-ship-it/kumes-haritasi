@@ -119,7 +119,7 @@ body.kare .kbtns{gap:4px}body.kare .kbtns button{padding:5px 9px;font-size:13px}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611232110"></script>
+<script src="gshim.js?v=202611232112"></script>
 <script>
 /* Hata olursa ekranın üstünde kırmızı yazı göster (beyaz ekranda ne olduğunu görebilelim) */
 (function () { const show = m => { try { let d = document.getElementById('errbox'); if (!d) { d = document.createElement('div'); d.id = 'errbox'; d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99999;background:#b00020;color:#fff;font:14px/1.4 system-ui;padding:10px 12px;border-radius:10px;white-space:pre-wrap;max-height:40vh;overflow:auto'; d.onclick = () => d.remove(); (document.body || document.documentElement).appendChild(d); } d.textContent = 'HATA (fotoğrafını Claude\'a at): ' + m + '\nsürüm ' + (window.APP_VER_TXT || '?'); } catch (e) {} };
@@ -141,8 +141,11 @@ const AREA_RESET = 1795448835297;
 const areaNew = a => !!(a && a.properties && a.properties.t && a.properties.t >= AREA_RESET);
 if (!S.areaReset || S.areaReset < AREA_RESET) { const n = S.areas.length; S.areas.forEach(a => { if (a.properties && a.properties.id) S.del = (S.del || []).concat(a.properties.id).slice(-500); }); S.areas = []; S.kare = null; S.fh = 1; S.areaReset = AREA_RESET; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} if (n) setTimeout(() => { try { toast('Yeşil alanlar temizlendi · kümesler duruyor · baştan taramaya hazır'); } catch (e) {} }, 1500); }
 S.areas = S.areas.filter(areaNew);
+// Yeşil alan temizliği: kareler arasındaki ince çatlakları/çizgileri kapatır (4 m şişir, 4 m geri daralt), gereksiz köşeleri atar
+function areaClean(f) { try { const b = turf.buffer(turf.buffer(f, 0.004, { units: 'kilometers' }), -0.004, { units: 'kilometers' }); if (!b || !b.geometry || turf.area(b) < 50) return f; const s2 = turf.simplify(b, { tolerance: 0.00001 }); s2.properties = f.properties || {}; return s2; } catch (e) { return f; } }
+if (!S.cl1) { S.areas = S.areas.map(areaClean); S.cl1 = 1; S.ov1 = 0; }
 // Bir kerelik: üst üste binmiş yeşil alanları birleştir (iki kat yeşil görünmesin)
-if (!S.ov1) { try { const out = []; S.areas.forEach(a => { let m = a; for (let i = out.length - 1; i >= 0; i--) { let hit = false; try { hit = turf.booleanOverlap(out[i], m) || turf.booleanContains(out[i], m) || turf.booleanContains(m, out[i]) || !!turf.intersect(out[i], m); } catch (e) {} if (hit) { try { const u = turf.union(out[i], m); if (u) { (out[i].properties && out[i].properties.id) && (S.del = (S.del || []).concat(out[i].properties.id).slice(-500)); (m.properties && m.properties.id) && (S.del = (S.del || []).concat(m.properties.id).slice(-500)); u.properties = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), t: Date.now(), note: [out[i].properties && out[i].properties.note, m.properties && m.properties.note].filter(Boolean).join(' · ') }; m = u; out.splice(i, 1); } } catch (e) {} } } out.push(m); }); S.areas = out; } catch (e) {} S.ov1 = 1; }
+if (!S.ov1) { try { const out = []; S.areas.forEach(a => { let m = a; for (let i = out.length - 1; i >= 0; i--) { let hit = false; try { hit = turf.booleanOverlap(out[i], m) || turf.booleanContains(out[i], m) || turf.booleanContains(m, out[i]) || !!turf.intersect(out[i], m); } catch (e) {} if (hit) { try { const u = turf.union(out[i], m); if (u) { (out[i].properties && out[i].properties.id) && (S.del = (S.del || []).concat(out[i].properties.id).slice(-500)); (m.properties && m.properties.id) && (S.del = (S.del || []).concat(m.properties.id).slice(-500)); u.properties = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), t: Date.now(), note: [out[i].properties && out[i].properties.note, m.properties && m.properties.note].filter(Boolean).join(' · ') }; m = u; out.splice(i, 1); } } catch (e) {} } } out.push(m); }); S.areas = out.map(a => a.geometry && a.geometry.type === 'MultiPolygon' ? areaClean(a) : a); } catch (e) {} S.ov1 = 1; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
 if (!S.lv2) { S.layer = 'satlbl'; S.lv2 = 1; }
 const hist = [];
 const markDel = id => { if (!id) return; S.del = (S.del || []).concat(id).slice(-500); };
@@ -602,7 +605,9 @@ function kCommit(cb) {
       if (!kDoneU) kDoneBuild();
       let u = kDoneU;
       if (u) u = kClip(u, K && K.reg);
+      if (u) u = areaClean(u);
       if (u) u = kMinusOld(u);
+      if (u) u = areaClean(u);
       if (u && turf.area(u) > 100) { snapshot(); u.properties = { id: uid(), t: Date.now(), note: 'Kare kare' + (K && K.reg && !K.reg.il ? ' · ' + K.reg.n : '') }; S.areas.push(u); }
     } catch (e) {}
     kDoneU = null; if (K) K.done = []; save(); drawAreas(); if (kDoneL) kDoneL.clearLayers(); if (cb) cb();
@@ -1032,7 +1037,7 @@ if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeo
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
 window.APP_VER_TXT = document.currentScript ? '' : '';
-const APP_VER = '202611232110';
+const APP_VER = '202611232112';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { let n = 0; try { n = +(sessionStorage.getItem('kh-up-' + t) || 0); sessionStorage.setItem('kh-up-' + t, n + 1); } catch (e) {} if (n >= 2) return; const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 window.APP_VER_TXT = APP_VER; checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
