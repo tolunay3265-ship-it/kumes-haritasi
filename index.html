@@ -112,7 +112,7 @@ body.kare .kbar{display:flex}body.kare .bar,body.kare .send,body.kare #tog,body.
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611231810"></script>
+<script src="gshim.js?v=202611231814"></script>
 <script>
 function APP() {
 const KEY = 'kumes-harita-v1';
@@ -543,11 +543,19 @@ $('lay').onclick = () => {
 const KARE = { dLat: 0.0040, dLng: 0.0051 };
 let kLayer = null, kBusy = false;
 const kCell = c => { const [la, lo] = c; return turf.polygon([[[lo, la], [lo + KARE.dLng, la], [lo + KARE.dLng, la + KARE.dLat], [lo, la + KARE.dLat], [lo, la]]]); };
-function kDone(c) { const cp = kCell(c), A = turf.area(cp); let cov = 0; S.areas.forEach(a => { try { const x = turf.intersect(a, cp); if (x) cov += turf.area(x); } catch (e) {} }); return cov / A > 0.85; }
+// Hızlı kontrol: karenin ortası ve 4 köşesi taranmış bir alanın içindeyse kare taranmış sayılır
+let kAB = null;
+const kAreasBB = () => (kAB = S.areas.map(a => { try { return [turf.bbox(a), a]; } catch (e) { return null; } }).filter(Boolean));
+function kDone(c) {
+  const ab = kAB || kAreasBB(), la = c[0], lo = c[1], m = 0.0004;
+  const P = [[lo + KARE.dLng / 2, la + KARE.dLat / 2], [lo + m, la + m], [lo + KARE.dLng - m, la + m], [lo + m, la + KARE.dLat - m], [lo + KARE.dLng - m, la + KARE.dLat - m]];
+  return P.every(pt => ab.some(([b, a]) => pt[0] >= b[0] && pt[0] <= b[2] && pt[1] >= b[1] && pt[1] <= b[3] && (() => { try { return turf.booleanPointInPolygon(pt, a); } catch (e) { return false; } })()));
+}
 function kareStart() {
   const b = map.getBounds(), s0 = b.getSouth(), w0 = b.getWest(), n0 = b.getNorth(), e0 = b.getEast();
   const rows = Math.ceil((n0 - s0) / KARE.dLat), cols = Math.ceil((e0 - w0) / KARE.dLng);
-  if (rows * cols > 3000) { toast('Bölge çok büyük. Biraz yakınlaşıp tekrar dene (en fazla birkaç köy).'); return; }
+  kAB = null;
+  if (rows * cols > 1500) { toast('Bölge çok büyük. Biraz yakınlaşıp tekrar dene (en fazla birkaç köy).'); return; }
   const cells = [];
   for (let r = rows - 1; r >= 0; r--) { const row = []; for (let c = 0; c < cols; c++) row.push([+(s0 + r * KARE.dLat).toFixed(5), +(w0 + c * KARE.dLng).toFixed(5)]); if ((rows - 1 - r) % 2) row.reverse(); cells.push(...row); }
   const todo = cells.filter(c => !kDone(c));
@@ -572,7 +580,7 @@ function kShow() {
 }
 function kNext() {
   const K = S.kare; if (!K || kBusy) return; kBusy = true;
-  try { const c = K.cells[K.i]; snapshot(); addArea(kCell(c)); drawAreas(); } catch (e) {}
+  try { const c = K.cells[K.i]; snapshot(); addArea(kCell(c)); drawAreas(); kAB = null; } catch (e) {}
   K.i++; save(); kShow(); setTimeout(() => kBusy = false, 250);
 }
 function kPrev() { const K = S.kare; if (!K || K.i === 0) return; K.i--; K.back = true; save(); kShow(); }
@@ -856,7 +864,7 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeout(() => { if (!S.cust.length && !S.pins.length && !$('sheet').classList.contains('on')) help(); }, 600);
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
-const APP_VER = '202611231810';
+const APP_VER = '202611231814';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
