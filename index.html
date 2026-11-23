@@ -83,6 +83,13 @@ body.kare .kbar{display:flex}body.kare .bar,body.kare .send,body.kare #tog,body.
 .kmid{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center}.kmid b{font-size:16px}.kmid small{opacity:.75;font-size:12px}
 .kbtns{display:flex;gap:6px}.kbtns button{border:0;border-radius:10px;background:#2a2d33;color:#fff;font:600 14px system-ui;padding:6px 12px}
 @media (min-width:700px),(hover:hover) and (pointer:fine){.kbar{left:50%;right:auto;transform:translateX(-50%);width:min(620px,92vw)}}
+/* Kare kare: ekran olabildiğince kareye kalsın, üst arama gizli, alt çubuk ince */
+body.kare .top{display:none!important}
+body.kare .kbar{padding:4px;gap:6px;border-radius:14px;bottom:calc(env(safe-area-inset-bottom,0px) + 4px);left:4px;right:4px}
+body.kare .kb{min-width:44px;font-size:16px;border-radius:10px}body.kare .kb.go{min-width:70px;font-size:15px}
+body.kare .kmid{flex-direction:row;justify-content:center;gap:6px;align-items:center}body.kare .kmid small{display:none}body.kare .kmid b{font-size:14px;white-space:nowrap}
+body.kare .kbtns{gap:4px}body.kare .kbtns button{padding:5px 9px;font-size:13px}
+@media (min-width:700px),(hover:hover) and (pointer:fine){body.kare .kbar{left:50%;right:auto;width:auto;min-width:360px}}
 </style>
 </head>
 <body>
@@ -112,7 +119,7 @@ body.kare .kbar{display:flex}body.kare .bar,body.kare .send,body.kare #tog,body.
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611231945"></script>
+<script src="gshim.js?v=202611232041"></script>
 <script>
 /* Hata olursa ekranın üstünde kırmızı yazı göster (beyaz ekranda ne olduğunu görebilelim) */
 (function () { const show = m => { try { let d = document.getElementById('errbox'); if (!d) { d = document.createElement('div'); d.id = 'errbox'; d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99999;background:#b00020;color:#fff;font:14px/1.4 system-ui;padding:10px 12px;border-radius:10px;white-space:pre-wrap;max-height:40vh;overflow:auto'; d.onclick = () => d.remove(); (document.body || document.documentElement).appendChild(d); } d.textContent = 'HATA (fotoğrafını Claude\'a at): ' + m + '\nsürüm ' + (window.APP_VER_TXT || '?'); } catch (e) {} };
@@ -594,9 +601,20 @@ function kClip(u, reg) {
     return turf.intersect(u, regFeat(reg));
   } catch (e) { return u; }
 }
+// Kare boyu ekrana göre: bir kare, ekranın (alt çubuk hariç) tamamını dolduracak şekilde seçilir
+const KARE0 = { dLat: 0.0040, dLng: 0.0051 };
+function kGeom() { const H = innerHeight, W = innerWidth, kb = $('kbar'), r = kb.getBoundingClientRect(); const kh = r.height > 10 ? r.height : 44; const top = 4, bot = kh + 10; return { H, W, top, bot, avH: Math.max(200, H - top - bot), avW: Math.max(200, W - 8) }; }
+function kFit(lat) {
+  const g = kGeom(), c = Math.cos(lat * Math.PI / 180), mpp0 = 156543.03 * c;
+  const z = Math.max(14, Math.min(19, Math.floor(Math.log2(Math.min(g.avW, g.avH) * mpp0 / 280))));
+  const mpp = mpp0 / Math.pow(2, z);
+  return { dLat: +(g.avH * mpp / 111320 * .97).toFixed(6), dLng: +(g.avW * mpp / (111320 * c) * .97).toFixed(6), z };
+}
+function kUse(K) { if (K && K.kd) { KARE.dLat = K.kd.dLat; KARE.dLng = K.kd.dLng; } else { KARE.dLat = KARE0.dLat; KARE.dLng = KARE0.dLng; } }
 function kareStart() {
   const go = () => {
     const b = map.getBounds(), s0 = b.getSouth(), w0 = b.getWest(), n0 = b.getNorth(), e0 = b.getEast();
+    const kd = kFit((s0 + n0) / 2); KARE.dLat = kd.dLat; KARE.dLng = kd.dLng;
     const rows = Math.ceil((n0 - s0) / KARE.dLat), cols = Math.ceil((e0 - w0) / KARE.dLng);
     if (rows * cols > 1500) { toast('Bölge çok büyük. Biraz yakınlaşıp tekrar dene (en fazla birkaç köy).'); return; }
     const cells = [];
@@ -607,12 +625,12 @@ function kareStart() {
     const inIl = c => !ilF || [[c[1] + KARE.dLng / 2, c[0] + KARE.dLat / 2], [c[1] + m, c[0] + m], [c[1] + KARE.dLng - m, c[0] + m], [c[1] + m, c[0] + KARE.dLat - m], [c[1] + KARE.dLng - m, c[0] + KARE.dLat - m]].some(pt => { try { return turf.booleanPointInPolygon(pt, ilF); } catch (e) { return false; } });
     const todo = cells.filter(c => inIl(c) && !kInArea(c));
     if (!todo.length) { toast('Bu bölgenin tamamı zaten taranmış ✓'); return; }
-    S.kare = { cells: todo, i: 0, found: 0, done: [], t: Date.now(), reg: il ? { n: il.n, r: il.r, il: 1 } : null }; save(); kareOn();
+    S.kare = { cells: todo, i: 0, found: 0, done: [], t: Date.now(), kd, reg: il ? { n: il.n, r: il.r, il: 1 } : null }; save(); kareOn();
   };
   const go2 = () => { if (bndAll) go(); else { toast('Sınırlar yükleniyor…'); bndFile().then(go); } };
   if (S.kare && S.kare.done && S.kare.done.length) kCommit(go2); else go2();
 }
-function kareOn() { const K = S.kare; if (!K) return; K.done = K.done || []; kPrep(K); document.body.classList.add('kare'); setMode('pin'); kDrawDone(); kDrawReg(); kShow(); }
+function kareOn() { const K = S.kare; if (!K) return; kUse(K); K.done = K.done || []; kPrep(K); document.body.classList.add('kare'); setMode('pin'); kDrawDone(); kDrawReg(); kShow(); }
 function kareOff() { document.body.classList.remove('kare'); if (kLayer) { map.removeLayer(kLayer); kLayer = null; } if (kRegL) { map.removeLayer(kRegL); kRegL = null; } setMode('pan'); kCommit(); }
 function kShow() {
   const K = S.kare; if (!K) return kareOff();
@@ -623,7 +641,11 @@ function kShow() {
   if (kLayer) map.removeLayer(kLayer);
   kLayer = L.layerGroup().addTo(map);
   L.polyline([[c[0], c[1]], [c[0], c[1] + KARE.dLng], [c[0] + KARE.dLat, c[1] + KARE.dLng], [c[0] + KARE.dLat, c[1]], [c[0], c[1]]], { color: '#ffffff', weight: 3, opacity: .9, dashArray: '8 6', interactive: false, zIndex: 30 }).addTo(kLayer);
-  map.fitBounds(bb);
+  if (K.kd) {
+    const g = kGeom(), cl = c[0] + KARE.dLat / 2, cg = c[1] + KARE.dLng / 2, mpp = 156543.03 * Math.cos(cl * Math.PI / 180) / Math.pow(2, K.kd.z);
+    const oy = (g.top + (g.H - g.bot)) / 2 - g.H / 2;
+    map.setView([cl + oy * mpp / 111320, cg], K.kd.z);
+  } else map.fitBounds(bb);
   $('kno').textContent = 'Kare ' + (K.i + 1) + ' / ' + K.cells.length + (K.found ? ' · ' + K.found + ' kümes' : '');
   $('kprev').disabled = K.i === 0;
 }
@@ -658,6 +680,7 @@ function kareStartReg(reg) {
   const go = () => {
     let f; try { f = regFeat(reg); } catch (e) { toast('Bu bölgenin sınırı okunamadı'); return; }
     const [w0, s0, e0, n0] = turf.bbox(f);
+    const kd = kFit((s0 + n0) / 2); KARE.dLat = kd.dLat; KARE.dLng = kd.dLng;
     const rows = Math.ceil((n0 - s0) / KARE.dLat), cols = Math.ceil((e0 - w0) / KARE.dLng);
     if (rows * cols > 6000) { toast(reg.n + ' çok büyük, kare kare taranamaz'); return; }
     const m = 0.0004, inReg = (la, lo) => [[lo + KARE.dLng / 2, la + KARE.dLat / 2], [lo + m, la + m], [lo + KARE.dLng - m, la + m], [lo + m, la + KARE.dLat - m], [lo + KARE.dLng - m, la + KARE.dLat - m]].some(pt => { try { return turf.booleanPointInPolygon(pt, f); } catch (e) { return false; } });
@@ -668,7 +691,7 @@ function kareStartReg(reg) {
     S.kare = null; kPrep({ cells });
     const todo = cells.filter(c => !kInArea(c));
     if (!todo.length) { toast(reg.n + ' zaten tamamen taranmış ✓'); return; }
-    S.kare = { cells: todo, i: 0, found: 0, done: [], t: Date.now(), reg: { n: reg.n, r: reg.r } }; save(); kareOn();
+    S.kare = { cells: todo, i: 0, found: 0, done: [], t: Date.now(), kd, reg: { n: reg.n, r: reg.r } }; save(); kareOn();
     toast(reg.n + ' · ' + todo.length + ' kare');
   };
   if (S.kare && S.kare.done && S.kare.done.length) kCommit(go); else go();
@@ -987,7 +1010,7 @@ if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeo
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
 window.APP_VER_TXT = document.currentScript ? '' : '';
-const APP_VER = '202611231945';
+const APP_VER = '202611232041';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { let n = 0; try { n = +(sessionStorage.getItem('kh-up-' + t) || 0); sessionStorage.setItem('kh-up-' + t, n + 1); } catch (e) {} if (n >= 2) return; const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 window.APP_VER_TXT = APP_VER; checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
