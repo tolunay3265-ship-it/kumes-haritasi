@@ -112,7 +112,7 @@ body.kare .kbar{display:flex}body.kare .bar,body.kare .send,body.kare #tog,body.
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611231823"></script>
+<script src="gshim.js?v=202611231825"></script>
 <script>
 /* Hata olursa ekranın üstünde kırmızı yazı göster (beyaz ekranda ne olduğunu görebilelim) */
 (function () { const show = m => { try { let d = document.getElementById('errbox'); if (!d) { d = document.createElement('div'); d.id = 'errbox'; d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99999;background:#b00020;color:#fff;font:14px/1.4 system-ui;padding:10px 12px;border-radius:10px;white-space:pre-wrap;max-height:40vh;overflow:auto'; d.onclick = () => d.remove(); (document.body || document.documentElement).appendChild(d); } d.textContent = 'HATA (fotoğrafını Claude\'a at): ' + m + '\nsürüm ' + (window.APP_VER_TXT || '?'); } catch (e) {} };
@@ -137,6 +137,7 @@ function snapshot() { S.chg = (S.chg || 0) + 1; hist.push(JSON.stringify({ areas
 try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
 
 /* ---------- Harita ---------- */
+if (!(S.view && Array.isArray(S.view.c) && Number.isFinite(S.view.c[0]) && Number.isFinite(S.view.c[1]) && Number.isFinite(S.view.z))) S.view = null;
 const map = L.map('map', { zoomControl: false, attributionControl: true, tap: false, doubleClickZoom: false, maxZoom: 20, worldCopyJump: true }).setView(S.view ? S.view.c : [38.48, 28.14], S.view ? S.view.z : 11);
 const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 19, attribution: 'Uydu: Esri, Maxar, Earthstar' });
 const labels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 20, maxNativeZoom: 19 });
@@ -148,7 +149,7 @@ function applyLayer() {
   if (S.layer === 'street') street.addTo(map); else { sat.addTo(map); if (S.layer === 'satlbl') { roads.addTo(map); labels.addTo(map); } }
 }
 applyLayer();
-map.on('moveend', () => { const c = map.getCenter(); S.view = { c: [+c.lat.toFixed(5), +c.lng.toFixed(5)], z: map.getZoom() }; save(); });
+map.on('moveend', () => { const c = map.getCenter(); if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng) || !Number.isFinite(map.getZoom())) return; S.view = { c: [+c.lat.toFixed(5), +c.lng.toFixed(5)], z: map.getZoom() }; save(); });
 
 const areaLayer = L.geoJSON(null, { style: { color: '#2fd36b', weight: 2, fillColor: '#2fd36b', fillOpacity: .32 } }).addTo(map);
 const pinLayer = L.layerGroup().addTo(map);
@@ -895,7 +896,7 @@ if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeo
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
 window.APP_VER_TXT = document.currentScript ? '' : '';
-const APP_VER = '202611231823';
+const APP_VER = '202611231825';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { let n = 0; try { n = +(sessionStorage.getItem('kh-up-' + t) || 0); sessionStorage.setItem('kh-up-' + t, n + 1); } catch (e) {} if (n >= 2) return; const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 window.APP_VER_TXT = APP_VER; checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */

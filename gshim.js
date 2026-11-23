@@ -112,12 +112,12 @@ function installShim() {
       this.g.addListener('click', e => { if (e.placeId) { try { e.stop(); } catch (x) {} this.fire('poiclick', { placeId: e.placeId, latlng: toLL(e.latLng) }); return; } this.fire('click', { latlng: toLL(e.latLng) }); });
       this.g.addListener('dblclick', e => this.fire('dblclick', { latlng: toLL(e.latLng) }));
     }
-    setView(c, z) { this.g.setCenter(gl(c)); if (z != null) this.g.setZoom(z); return this; }
+    setView(c, z) { const p = gl(c); if (Number.isFinite(p.lat) && Number.isFinite(p.lng)) this.g.setCenter(p); if (Number.isFinite(z)) this.g.setZoom(z); return this; }
     getCenter() { return toLL(this.g.getCenter()); }
     getZoom() { return this.g.getZoom(); }
     setZoom(z) { this.g.setZoom(z); return this; }
     getBounds() { const b = this.g.getBounds(); if (!b) return new Bounds([0, 0], [0, 0]); return new Bounds(toLL(b.getSouthWest()), toLL(b.getNorthEast())); }
-    fitBounds(b) { this.g.fitBounds(b.g(), 20); }
+    fitBounds(b) { try { const x = b.g(); if (![x.south, x.west, x.north, x.east].every(Number.isFinite)) return this; this.g.fitBounds(x, 20); } catch (e) {} return this; }
     panBy(d) { this.g.panBy(d[0], d[1]); }
     hasLayer(l) { return !!(l && l._map); }
     removeLayer(l) { if (l) l.remove(); }
@@ -136,7 +136,7 @@ function installShim() {
     circle: (c, o) => new Circle(c, o),
     circleMarker,
     latLng: (a, b) => b == null ? toLL(a) : new LatLng(a, b),
-    latLngBounds: a => { const lats = a.map(x => toLL(x).lat), lngs = a.map(x => toLL(x).lng); return new Bounds([Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]); },
+    latLngBounds: (a, b) => { if (b !== undefined) a = [a, b]; const lats = a.map(x => toLL(x).lat), lngs = a.map(x => toLL(x).lng); return new Bounds([Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]); },
     DomEvent: { stopPropagation() {} }
   };
 }
