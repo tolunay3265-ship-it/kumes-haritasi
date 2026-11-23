@@ -107,7 +107,7 @@ body.kare .kbar{display:flex}body.kare .bar,body.kare .send,body.kare #tog,body.
   <button class="tb" id="undo"><b>↶</b>Geri al</button>
   <button class="tb" id="lay"><b>🗺️</b>Katman</button>
 </div></div>
-<div class="kbar" id="kbar"><button class="kb" id="kprev">◀</button><div class="kmid"><b id="kno">Kare</b><small>Kümes görürsen üstüne dokun · yoksa sola kaydır</small><div class="kbtns"><button id="kzi">＋</button><button id="kzo">⤢</button><button id="kend">Bitir</button></div></div><button class="kb go" id="knext">Geç ▶</button></div>
+<div class="kbar" id="kbar"><button class="kb" id="kprev">◀</button><div class="kmid"><b id="kno">Kare</b><small>Kümes varsa üstüne dokun · bu çubuğu sola kaydır ya da Geç · haritayı serbestçe gezebilirsin</small><div class="kbtns"><button id="kzi">＋</button><button id="kzo">⤢</button><button id="kend">Bitir</button></div></div><button class="kb go" id="knext">Geç ▶</button></div>
 <div class="sheet" id="sheet"><div class="bg" id="sbg"></div><div class="panel" id="panel"></div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -554,7 +554,7 @@ function kareStart() {
   if (!todo.length) { toast('Bu bölgenin tamamı zaten taranmış ✓'); return; }
   S.kare = { cells: todo, i: 0, found: 0, t: Date.now() }; save(); kareOn();
 }
-function kareOn() { document.body.classList.add('kare'); setMode('pin'); map.dragging.disable(); kShow(); }
+function kareOn() { document.body.classList.add('kare'); setMode('pin'); kShow(); }
 function kareOff() { document.body.classList.remove('kare'); if (kLayer) { map.removeLayer(kLayer); kLayer = null; } setMode('pan'); }
 function kShow() {
   const K = S.kare; if (!K) return kareOff();
@@ -581,7 +581,7 @@ $('kareb').onclick = () => {
     open('<div class="ph"><h3>🔲 Kare kare tarama</h3><button class="x" data-close>✕</button></div><div class="muted">Yarım kalan tarama var: kare ' + (S.kare.i + 1) + ' / ' + S.kare.cells.length + '.</div><div class="row"><button class="btn pri" id="kcont">Kaldığın yerden devam</button></div><div class="row"><button class="btn" id="knew">Yeni tarama: şu an ekrandaki bölge</button></div>');
     $('kcont').onclick = () => { close(); kareOn(); }; $('knew').onclick = () => { close(); kareStart(); };
   } else {
-    open('<div class="ph"><h3>🔲 Kare kare tarama</h3><button class="x" data-close>✕</button></div><div class="muted">Taramak istediğin bölgeyi (bir köy, birkaç köy) ekrana sığdır, sonra başlat. Bölge yaklaşık 400 m’lik karelere bölünür ve sırayla gösterilir.<br><br>• Karede kümes varsa <b>üstüne dokun</b> → kümes eklenir<br>• Yoksa <b>sola kaydır</b> ya da <b>Geç ▶</b><br>• Geçtiğin kareler yeşile boyanır, daha önce taranmış kareler atlanır<br>• Bilgisayarda: → / boşluk = geç, ← = geri</div><div class="row"><button class="btn pri" id="kgo">Ekrandaki bölgeyi tara</button></div>');
+    open('<div class="ph"><h3>🔲 Kare kare tarama</h3><button class="x" data-close>✕</button></div><div class="muted">Taramak istediğin bölgeyi (bir köy, birkaç köy) ekrana sığdır, sonra başlat. Bölge yaklaşık 400 m’lik karelere bölünür ve sırayla gösterilir.<br><br>• Karede kümes varsa <b>üstüne dokun</b> → kümes eklenir<br>• Yoksa alttaki çubuğu <b>sola kaydır</b> ya da <b>Geç ▶</b><br>• Harita serbest: parmakla kaydırıp yakınlaştırabilirsin, <b>⤢</b> kareye geri döner<br>• Geçtiğin kareler yeşile boyanır, daha önce taranmış kareler atlanır<br>• Bilgisayarda: → / boşluk = geç, ← = geri</div><div class="row"><button class="btn pri" id="kgo">Ekrandaki bölgeyi tara</button></div>');
     $('kgo').onclick = () => { close(); kareStart(); };
   }
 };
@@ -589,7 +589,7 @@ $('knext').onclick = kNext; $('kprev').onclick = kPrev;
 $('kend').onclick = () => { kareOff(); toast('Tarama durduruldu · 🔲 Kare kare ile kaldığın yerden devam edebilirsin'); };
 $('kzi').onclick = () => map.setZoom(map.getZoom() + 1); $('kzo').onclick = () => { if (S.kare) kShow(); };
 addEventListener('keydown', e => { if (!document.body.classList.contains('kare') || $('sheet').classList.contains('on')) return; if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); kNext(); } else if (e.key === 'ArrowLeft') { e.preventDefault(); kPrev(); } });
-(() => { let x0 = null, y0 = null, multi = false; const el = $('map');
+(() => { let x0 = null, y0 = null, multi = false; const el = $('kbar');
   el.addEventListener('touchstart', e => { if (!document.body.classList.contains('kare')) return; multi = e.touches.length > 1; if (!multi) { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; } }, { passive: true, capture: true });
   el.addEventListener('touchend', e => { if (!document.body.classList.contains('kare') || x0 === null || multi) { x0 = null; return; } const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0; x0 = null; if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) { window.kSwiped = Date.now(); if (dx < 0) kNext(); else kPrev(); } }, { passive: true, capture: true });
 })();
