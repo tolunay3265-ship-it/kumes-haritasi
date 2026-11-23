@@ -112,7 +112,7 @@ body.kare .kbar{display:flex}body.kare .bar,body.kare .send,body.kare #tog,body.
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611231814"></script>
+<script src="gshim.js?v=202611231820"></script>
 <script>
 function APP() {
 const KEY = 'kumes-harita-v1';
@@ -543,47 +543,74 @@ $('lay').onclick = () => {
 const KARE = { dLat: 0.0040, dLng: 0.0051 };
 let kLayer = null, kBusy = false;
 const kCell = c => { const [la, lo] = c; return turf.polygon([[[lo, la], [lo + KARE.dLng, la], [lo + KARE.dLng, la + KARE.dLat], [lo, la + KARE.dLat], [lo, la]]]); };
-// Hızlı kontrol: karenin ortası ve 4 köşesi taranmış bir alanın içindeyse kare taranmış sayılır
-let kAB = null;
-const kAreasBB = () => (kAB = S.areas.map(a => { try { return [turf.bbox(a), a]; } catch (e) { return null; } }).filter(Boolean));
-function kDone(c) {
-  const ab = kAB || kAreasBB(), la = c[0], lo = c[1], m = 0.0004;
+// Taranmış mı kontrolü: alanlar bir kez ekrandaki bölgeye kırpılır (dev alanlar küçülür), sonra sadece nokta kontrolü yapılır
+let kAB = null, kDoneL = null;
+const kKey = c => c[0] + ',' + c[1];
+function kPrep(K) {
+  let a = 90, b = 180, c = -90, d = -180; K.cells.forEach(x => { if (x[0] < a) a = x[0]; if (x[1] < b) b = x[1]; if (x[0] + KARE.dLat > c) c = x[0] + KARE.dLat; if (x[1] + KARE.dLng > d) d = x[1] + KARE.dLng; });
+  const box = [b - .002, a - .002, d + .002, c + .002];
+  kAB = [];
+  S.areas.forEach(f => { try { const bb = turf.bbox(f); if (bb[2] < box[0] || bb[0] > box[2] || bb[3] < box[1] || bb[1] > box[3]) return; const cl = turf.bboxClip(f, box); if (cl && cl.geometry && cl.geometry.coordinates.length) kAB.push([turf.bbox(cl), cl]); } catch (e) {} });
+}
+function kInArea(c) {
+  const la = c[0], lo = c[1], m = 0.0004;
   const P = [[lo + KARE.dLng / 2, la + KARE.dLat / 2], [lo + m, la + m], [lo + KARE.dLng - m, la + m], [lo + m, la + KARE.dLat - m], [lo + KARE.dLng - m, la + KARE.dLat - m]];
-  return P.every(pt => ab.some(([b, a]) => pt[0] >= b[0] && pt[0] <= b[2] && pt[1] >= b[1] && pt[1] <= b[3] && (() => { try { return turf.booleanPointInPolygon(pt, a); } catch (e) { return false; } })()));
+  return P.every(pt => kAB.some(([b, a]) => pt[0] >= b[0] && pt[0] <= b[2] && pt[1] >= b[1] && pt[1] <= b[3] && (() => { try { return turf.booleanPointInPolygon(pt, a); } catch (e) { return false; } })()));
+}
+function kDone(c) { const K = S.kare; if (K && K.done && K.done.includes(kKey(c))) return true; if (!kAB) return false; return kInArea(c); }
+// Geçilen kareler önce hafif yeşil karelerle çizilir; büyük alanla birleştirme tarama bitince tek seferde yapılır (donmasın)
+function kDrawDone() {
+  if (!kDoneL) kDoneL = L.geoJSON(null, { style: { color: '#2fd36b', weight: 1, fillColor: '#2fd36b', fillOpacity: .32 }, interactive: false }).addTo(map);
+  kDoneL.clearLayers(); const K = S.kare; if (!K || !K.done) return;
+  K.done.forEach(k => { const [la, lo] = k.split(',').map(Number); kDoneL.addData(kCell([la, lo])); });
+}
+function kCommit(cb) {
+  const K = S.kare; const keys = (K && K.done) || [];
+  if (!keys.length) { if (cb) cb(); return; }
+  toast('Taranan kareler kaydediliyor…');
+  setTimeout(() => {
+    try {
+      let u = null; keys.forEach(k => { const [la, lo] = k.split(',').map(Number); const c = kCell([la, lo]); try { u = u ? (turf.union(u, c) || u) : c; } catch (e) {} });
+      if (u) { snapshot(); u.properties = { id: uid(), t: Date.now(), note: 'Kare kare' }; S.areas.push(u); }
+    } catch (e) {}
+    if (K) K.done = []; save(); drawAreas(); if (kDoneL) kDoneL.clearLayers(); if (cb) cb();
+  }, 60);
 }
 function kareStart() {
-  const b = map.getBounds(), s0 = b.getSouth(), w0 = b.getWest(), n0 = b.getNorth(), e0 = b.getEast();
-  const rows = Math.ceil((n0 - s0) / KARE.dLat), cols = Math.ceil((e0 - w0) / KARE.dLng);
-  kAB = null;
-  if (rows * cols > 1500) { toast('Bölge çok büyük. Biraz yakınlaşıp tekrar dene (en fazla birkaç köy).'); return; }
-  const cells = [];
-  for (let r = rows - 1; r >= 0; r--) { const row = []; for (let c = 0; c < cols; c++) row.push([+(s0 + r * KARE.dLat).toFixed(5), +(w0 + c * KARE.dLng).toFixed(5)]); if ((rows - 1 - r) % 2) row.reverse(); cells.push(...row); }
-  const todo = cells.filter(c => !kDone(c));
-  if (!todo.length) { toast('Bu bölgenin tamamı zaten taranmış ✓'); return; }
-  S.kare = { cells: todo, i: 0, found: 0, t: Date.now() }; save(); kareOn();
+  const go = () => {
+    const b = map.getBounds(), s0 = b.getSouth(), w0 = b.getWest(), n0 = b.getNorth(), e0 = b.getEast();
+    const rows = Math.ceil((n0 - s0) / KARE.dLat), cols = Math.ceil((e0 - w0) / KARE.dLng);
+    if (rows * cols > 1500) { toast('Bölge çok büyük. Biraz yakınlaşıp tekrar dene (en fazla birkaç köy).'); return; }
+    const cells = [];
+    for (let r = rows - 1; r >= 0; r--) { const row = []; for (let c = 0; c < cols; c++) row.push([+(s0 + r * KARE.dLat).toFixed(5), +(w0 + c * KARE.dLng).toFixed(5)]); if ((rows - 1 - r) % 2) row.reverse(); cells.push(...row); }
+    S.kare = null; kPrep({ cells });
+    const todo = cells.filter(c => !kInArea(c));
+    if (!todo.length) { toast('Bu bölgenin tamamı zaten taranmış ✓'); return; }
+    S.kare = { cells: todo, i: 0, found: 0, done: [], t: Date.now() }; save(); kareOn();
+  };
+  if (S.kare && S.kare.done && S.kare.done.length) kCommit(go); else go();
 }
-function kareOn() { document.body.classList.add('kare'); setMode('pin'); kShow(); }
-function kareOff() { document.body.classList.remove('kare'); if (kLayer) { map.removeLayer(kLayer); kLayer = null; } setMode('pan'); }
+function kareOn() { const K = S.kare; if (!K) return; K.done = K.done || []; kPrep(K); document.body.classList.add('kare'); setMode('pin'); kDrawDone(); kShow(); }
+function kareOff() { document.body.classList.remove('kare'); if (kLayer) { map.removeLayer(kLayer); kLayer = null; } setMode('pan'); kCommit(); }
 function kShow() {
   const K = S.kare; if (!K) return kareOff();
-  while (K.i < K.cells.length && K.i >= 0 && kDone(K.cells[K.i]) && !K.back) K.i++;
+  while (K.i < K.cells.length && K.i >= 0 && !K.back && kDone(K.cells[K.i])) K.i++;
   K.back = false;
-  if (K.i >= K.cells.length) { const f = K.found; S.kare = null; save(); kareOff(); open('<div class="ph"><h3>Tarama bitti 🎉</h3><button class="x" data-close>✕</button></div><div class="muted">Bölgedeki bütün kareler tarandı. Bu taramada ' + f + ' kümes eklendi.</div>'); return; }
+  if (K.i >= K.cells.length) { const f = K.found; document.body.classList.remove('kare'); if (kLayer) { map.removeLayer(kLayer); kLayer = null; } setMode('pan'); kCommit(() => { S.kare = null; save(); }); open('<div class="ph"><h3>Tarama bitti 🎉</h3><button class="x" data-close>✕</button></div><div class="muted">Bölgedeki bütün kareler tarandı. Bu taramada ' + f + ' kümes eklendi.</div>'); return; }
   const c = K.cells[K.i], bb = L.latLngBounds([c[0], c[1]], [c[0] + KARE.dLat, c[1] + KARE.dLng]);
   if (kLayer) map.removeLayer(kLayer);
   kLayer = L.layerGroup().addTo(map);
   L.polyline([[c[0], c[1]], [c[0], c[1] + KARE.dLng], [c[0] + KARE.dLat, c[1] + KARE.dLng], [c[0] + KARE.dLat, c[1]], [c[0], c[1]]], { color: '#ffffff', weight: 3, opacity: .9, dashArray: '8 6', interactive: false, zIndex: 30 }).addTo(kLayer);
   map.fitBounds(bb);
-  const left = K.cells.length - K.i;
   $('kno').textContent = 'Kare ' + (K.i + 1) + ' / ' + K.cells.length + (K.found ? ' · ' + K.found + ' kümes' : '');
-  $('kprev').disabled = K.i === 0; void left;
+  $('kprev').disabled = K.i === 0;
 }
 function kNext() {
   const K = S.kare; if (!K || kBusy) return; kBusy = true;
-  try { const c = K.cells[K.i]; snapshot(); addArea(kCell(c)); drawAreas(); kAB = null; } catch (e) {}
-  K.i++; save(); kShow(); setTimeout(() => kBusy = false, 250);
+  try { const k = kKey(K.cells[K.i]); K.done = K.done || []; if (!K.done.includes(k)) { K.done.push(k); S.chg = (S.chg || 0) + 1; } kDrawDone(); } catch (e) {}
+  K.i++; save(); kShow(); setTimeout(() => kBusy = false, 150);
 }
-function kPrev() { const K = S.kare; if (!K || K.i === 0) return; K.i--; K.back = true; save(); kShow(); }
+function kPrev() { const K = S.kare; if (!K || K.i === 0) return; K.i--; K.back = true; if (K.done) { K.done = K.done.filter(k => k !== kKey(K.cells[K.i])); kDrawDone(); } save(); kShow(); }
 $('kareb').onclick = () => {
   if (S.kare && S.kare.i < S.kare.cells.length) {
     open('<div class="ph"><h3>🔲 Kare kare tarama</h3><button class="x" data-close>✕</button></div><div class="muted">Yarım kalan tarama var: kare ' + (S.kare.i + 1) + ' / ' + S.kare.cells.length + '.</div><div class="row"><button class="btn pri" id="kcont">Kaldığın yerden devam</button></div><div class="row"><button class="btn" id="knew">Yeni tarama: şu an ekrandaki bölge</button></div>');
@@ -594,7 +621,7 @@ $('kareb').onclick = () => {
   }
 };
 $('knext').onclick = kNext; $('kprev').onclick = kPrev;
-$('kend').onclick = () => { kareOff(); toast('Tarama durduruldu · 🔲 Kare kare ile kaldığın yerden devam edebilirsin'); };
+$('kend').onclick = () => { kareOff(); setTimeout(() => toast('Tarama durduruldu · 🔲 Kare kare ile kaldığın yerden devam edebilirsin'), 900); };
 $('kzi').onclick = () => map.setZoom(map.getZoom() + 1); $('kzo').onclick = () => { if (S.kare) kShow(); };
 addEventListener('keydown', e => { if (!document.body.classList.contains('kare') || $('sheet').classList.contains('on')) return; if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); kNext(); } else if (e.key === 'ArrowLeft') { e.preventDefault(); kPrev(); } });
 (() => { let x0 = null, y0 = null, multi = false; const el = $('kbar');
@@ -864,7 +891,7 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeout(() => { if (!S.cust.length && !S.pins.length && !$('sheet').classList.contains('on')) help(); }, 600);
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
-const APP_VER = '202611231814';
+const APP_VER = '202611231820';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
