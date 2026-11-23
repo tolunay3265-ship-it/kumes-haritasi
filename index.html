@@ -104,7 +104,7 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611231621"></script>
+<script src="gshim.js?v=202611231623"></script>
 <script>
 function APP() {
 const KEY = 'kumes-harita-v1';
@@ -545,14 +545,14 @@ async function bndLoad(force) {
   const b = map.getBounds().pad(z >= 12 ? 0.4 : 0.6), r = v => v.toFixed(3), box = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(r), key = lv + '#' + box.join(',');
   const old = bndKey.split('#');
   if (!force && bndKey && old[0] === lv && old[1].split(',').every((v, i) => i < 2 ? +v <= +box[i] : +v >= +box[i])) { bndDraw(); return; }
-  if (bndBusy) return; bndBusy = true;
+  if (bndBusy) return; bndBusy = true; window.bndSt = 'istek z' + z;
   const bb = '(' + box.join(',') + ')';
   // Her seviye için: sınırlar (etiket + orta nokta), sonra o sınırların ekrandaki çizgileri
   const q = '[out:json][timeout:60];' + lv.split('|').map(l => 'rel["boundary"="administrative"]["admin_level"="' + l + '"]' + bb + '->.r' + l + ';.r' + l + ' out tags center;way(r.r' + l + ')' + bb + ';out geom;').join('');
   try {
     let j = null;
     for (const u of ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter']) {
-      try { const r = await fetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q) }); if (r.ok) { const jj = await r.json(); if (!(jj.remark && /error/i.test(jj.remark))) { j = jj; break; } } } catch (e) {}
+      const sv = u.split('/')[2].split('.')[0]; try { const r = await fetch(u, { method: 'POST', body: 'data=' + encodeURIComponent(q) }); if (r.ok) { const jj = await r.json(); window.bndSt = sv + ': ' + (jj.elements || []).length + ' öğe' + (jj.remark ? ' · ' + String(jj.remark).slice(0, 60) : ''); if (!(jj.remark && /error/i.test(jj.remark))) { j = jj; break; } } else window.bndSt = sv + ': HTTP ' + r.status; } catch (e) { window.bndSt = sv + ': ' + String(e.message || e).slice(0, 40); }
     }
     if (!j) throw new Error('overpass');
     window.bndErr = 0;
@@ -673,7 +673,7 @@ map.on('click', () => { if ($('res').style.display === 'block') { hideRes(); sea
 /* ---------- Menü: Görev Matrisi bağlantısı, yedek ---------- */
 $('menu').onclick = () => {
   const unk = S.pins.filter(p => !p.lead).length, ha = Math.round(S.areas.reduce((a, f) => { try { return a + turf.area(f); } catch (e) { return a; } }, 0) / 1000) / 10;
-  open('<div class="ph"><h3>Kümes Haritası <small style="font-weight:500;opacity:.6;font-size:12px">sürüm ' + APP_VER.slice(6, 8) + '.' + APP_VER.slice(4, 6) + ' ' + APP_VER.slice(8, 10) + ':' + APP_VER.slice(10) + ' · sınır ' + (S.bnd === 0 ? 'kapalı' : bndData.length + ' bölge') + (window.bndErr ? ' · hata' : '') + '</small></h3><button class="x" data-close>✕</button></div>' +
+  open('<div class="ph"><h3>Kümes Haritası <small style="font-weight:500;opacity:.6;font-size:12px">sürüm ' + APP_VER.slice(6, 8) + '.' + APP_VER.slice(4, 6) + ' ' + APP_VER.slice(8, 10) + ':' + APP_VER.slice(10) + ' · sınır ' + (S.bnd === 0 ? 'kapalı' : bndData.length + ' bölge') + (window.bndErr ? ' · hata' : '') + ' · ' + esc(window.bndSt || 'başlamadı') + ' · yakınlık ' + map.getZoom() + '</small></h3><button class="x" data-close>✕</button></div>' +
     '<div class="kv"><span>Müşteri listesi</span><b>' + S.cust.length + ' kayıt</b></div><div class="kv"><span>İşaretli kümes</span><b>' + (S.pins.length - unk) + ' müşteri · ' + unk + ' ❓</b></div><div class="kv"><span>Taranan alan</span><b>' + ha.toString().replace('.', ',') + ' hektar</b></div>' +
     '<div class="lbl">Görev Matrisi ile bağlantı</div>' +
     '<button class="btn full pri" id="m-out">⬆️ Görev Matrisi’ne gönder (kopyala)</button>' +
@@ -784,7 +784,7 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeout(() => { if (!S.cust.length && !S.pins.length && !$('sheet').classList.contains('on')) help(); }, 600);
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
-const APP_VER = '202611231621';
+const APP_VER = '202611231623';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
