@@ -109,7 +109,7 @@ function installShim() {
       this.touchZoom = { enable() {}, disable() {} };
       this.g.addListener('idle', () => this.fire('moveend'));
       this.g.addListener('zoom_changed', () => this.fire('zoomend'));
-      this.g.addListener('click', e => { if (e.placeId) { this.fire('poiclick', { placeId: e.placeId, latlng: toLL(e.latLng) }); return; } this.fire('click', { latlng: toLL(e.latLng) }); });
+      this.g.addListener('click', e => { if (e.placeId) { try { e.stop(); } catch (x) {} this.fire('poiclick', { placeId: e.placeId, latlng: toLL(e.latLng) }); return; } this.fire('click', { latlng: toLL(e.latLng) }); });
       this.g.addListener('dblclick', e => this.fire('dblclick', { latlng: toLL(e.latLng) }));
     }
     setView(c, z) { this.g.setCenter(gl(c)); if (z != null) this.g.setZoom(z); return this; }

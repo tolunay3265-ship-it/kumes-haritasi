@@ -97,7 +97,7 @@ body.has-send .hint{bottom:calc(env(safe-area-inset-bottom,0px) + 134px)}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611222108"></script>
+<script src="gshim.js?v=202611231603"></script>
 <script>
 function APP() {
 const KEY = 'kumes-harita-v1';
@@ -283,6 +283,33 @@ function areaCard(f, ll) {
 /* ---------- Kümes işaretleri ---------- */
 let clickT = null;
 map.on('dblclick', e => { clearTimeout(clickT); clickT = null; newPinAt(e.latlng); });
+map.on('poiclick', e => { clearTimeout(clickT); clickT = null; if (mode === 'draw') return; gPlaceCard(e.placeId, e.latlng); });
+// Google haritasındaki bir yere (işletme, kümes…) dokununca: adı + telefonu göster, tek dokunuşla kümes olarak ekle
+async function gPlaceCard(id, ll) {
+  const lat = +(+ll.lat).toFixed(6), lng = +(+ll.lng).toFixed(6);
+  open('<div class="ph"><h3>Yer bilgisi</h3><button class="x" data-close>✕</button></div><div class="muted">Bilgiler alınıyor…</div>');
+  let d = null, err = '';
+  try {
+    const { Place } = await google.maps.importLibrary('places');
+    const P = new Place({ id, requestedLanguage: 'tr' });
+    await P.fetchFields({ fields: ['displayName', 'nationalPhoneNumber', 'formattedAddress', 'location', 'googleMapsURI'] });
+    d = { n: P.displayName || '', ph: P.nationalPhoneNumber || '', adr: P.formattedAddress || '', url: P.googleMapsURI || '' };
+    if (P.location) d.lat = +P.location.lat().toFixed(6), d.lng = +P.location.lng().toFixed(6);
+  } catch (x) { err = String((x && x.message) || x); console.warn('Places', x); }
+  const at = d && d.lat ? [d.lat, d.lng] : [lat, lng];
+  const gUrl = (d && d.url) || ('https://www.google.com/maps/search/?api=1&query=' + at[0] + ',' + at[1] + '&query_place_id=' + encodeURIComponent(id));
+  const tel = d && d.ph ? d.ph.replace(/[^\d+]/g, '') : '';
+  const dup = tel && S.pins.find(z => z.ph && z.ph.replace(/\D/g, '').slice(-10) === tel.replace(/\D/g, '').slice(-10));
+  open('<div class="ph"><h3>' + esc((d && d.n) || 'Yer bilgisi') + '</h3><button class="x" data-close>✕</button></div>' +
+    (d ? (d.ph ? '<div class="kv"><span>Telefon</span><b><a style="color:inherit" href="tel:' + esc(tel) + '">' + esc(d.ph) + '</a></b></div>' : '<div class="muted">Google’da telefonu yok.</div>') +
+         (d.adr ? '<div class="kv"><span>Adres</span><b>' + esc(d.adr) + '</b></div>' : '')
+       : '<div class="muted">Bilgiler alınamadı. “Google Maps’te aç” ile bakıp adı ve numarayı kendin yazabilirsin.</div>') +
+    (dup ? '<div class="muted">📍 Bu numara haritada zaten var: ' + esc(pinLabel(dup)) + '</div>' : '') +
+    '<div class="row">' + (tel ? '<a class="btn" href="tel:' + esc(tel) + '">📞 Ara</a>' : '') + '<a class="btn" href="' + esc(gUrl) + '" target="_blank" rel="noopener">🗺️ Google Maps’te aç</a></div>' +
+    '<div class="row"><button class="btn pri" id="gpadd">🏠 Kümes olarak ekle</button></div>');
+  $('gpadd').onclick = () => pinForm({ lat: at[0], lng: at[1], lead: null, name: (d && d.n) || '', ph: (d && d.ph) || '', note: (d && d.adr) ? 'Adres: ' + d.adr : '', cnt: '', st: '' }, true);
+  if (err) window.KH_PLACES_ERR = err;
+}
 function newPinAt(ll) { pinForm({ lat: +ll.lat.toFixed(6), lng: +ll.lng.toFixed(6), lead: null, name: '', note: '', cnt: '', st: '' }, true); }
 map.on('click', e => { if (mode === 'draw') return; clearTimeout(clickT); clickT = setTimeout(() => { clickT = null; onClick(e); }, 260); });
 function onClick(e) {
@@ -302,7 +329,9 @@ function pinForm(p, isNew) {
       (c ? '<div class="item"><div class="g"><b>' + esc(c.n) + '</b><small>' + esc([c.k, c.c].filter(Boolean).join(' / ')) + '</small></div><button class="chip" id="unlink">Değiştir</button></div>'
         : '<input class="field" id="cq" placeholder="Müşteri adı ya da köy yaz…" autocomplete="off"><div class="list" id="cl"></div>' +
           (S.cust.length ? '' : '<div class="muted">Müşteri listesi henüz yok. Menü → “Görev Matrisi’nden al” ile yükleyebilirsin.</div>') +
-          '<div class="lbl">Bilmiyorsan</div><input class="field" id="pn" value="' + esc(p.name) + '" placeholder="Bilinmeyen kümes (istersen kısa bir ad yaz)">') +
+          '<div class="lbl">Listede yoksa: adı</div><input class="field" id="pn" value="' + esc(p.name) + '" placeholder="Bilmiyorsan boş bırak">' +
+          '<div class="lbl">Telefon</div><input class="field" id="pp" inputmode="tel" value="' + esc(p.ph || '') + '" placeholder="Biliyorsan yaz (05xx …)">' +
+          '<div class="muted">Telefon yazarsan Görev Matrisi’ne numaralı müşteri olarak geçer.</div>') +
       '<div class="kv"><span>Yer</span><b id="pyer">' + esc(yerTxt(p) || 'aranıyor…') + '</b></div>' +
       '<div class="lbl">Durum</div><div class="chips">' + Object.keys(PST).map(k => '<button class="chip" data-st="' + k + '" aria-pressed="' + (st === k) + '">' + PST[k] + '</button>').join('') + '</div>' +
       '<div class="lbl">Kümes sayısı</div><input class="field" id="pc" inputmode="numeric" value="' + esc(p.cnt) + '" placeholder="Örn: 3">' +
@@ -317,14 +346,14 @@ function pinForm(p, isNew) {
     if (!isNew) $('pdel').onclick = () => { snapshot(); markDel(p.id); S.pins = S.pins.filter(z => z.id !== p.id); save(); drawPins(); close(); toast('Silindi · Geri al ile geri getirebilirsin'); };
     $('pok').onclick = () => {
       snapshot();
-      p.lead = lead || null; p.name = p.lead ? '' : (($('pn') && $('pn').value.trim()) || ''); p.cnt = $('pc').value.trim(); p.note = $('pt').value.trim(); p.st = st; if (!p.st) delete p.st;
+      p.lead = lead || null; p.name = p.lead ? '' : (($('pn') && $('pn').value.trim()) || ''); p.ph = p.lead ? '' : (($('pp') && $('pp').value.trim()) || ''); if (!p.ph) delete p.ph; p.cnt = $('pc').value.trim(); p.note = $('pt').value.trim(); p.st = st; if (!p.st) delete p.st;
       if (isNew) { p.id = uid(); p.t = Date.now(); S.pins.push(p); }
       if (p.lead) S.pins.forEach(z => { if (z !== p && z.lead === p.lead) { z.lead = null; z.name = (z.name || '') + ' (eski yer)'; } });
       p.upd = Date.now(); save(); drawPins(); close(); toast(p.lead ? 'Kaydedildi: ' + pinLabel(p) : (isNew ? 'Eklendi: ' : 'Kaydedildi: ') + pinLabel(p));
       if (isNew) setMode('pan');
     };
   };
-  function keep() { const g = id => $(id) && $(id).value; if ($('pc')) p.cnt = g('pc').trim(); if ($('pt')) p.note = g('pt'); if ($('pn')) p.name = g('pn').trim(); }
+  function keep() { const g = id => $(id) && $(id).value; if ($('pc')) p.cnt = g('pc').trim(); if ($('pt')) p.note = g('pt'); if ($('pn')) p.name = g('pn').trim(); if ($('pp')) p.ph = g('pp').trim(); }
   draw();
 }
 function pinCard(p) {
@@ -336,7 +365,8 @@ function pinCard(p) {
       (c.m ? '<div class="kv"><span>Kümes alanı</span><b>' + Number(c.m).toLocaleString('tr-TR') + ' m²</b></div>' : '') +
       (c.st ? '<div class="kv"><span>Durum</span><b>' + esc(c.st) + '</b></div>' : '') +
       (c.l ? '<div class="kv"><span>Son arama</span><b>' + esc(c.l) + '</b></div>' : '')
-      : '<div class="muted">' + (p.st ? PST[p.st] : '❓ Sahibi bilinmiyor. “Düzenle”den müşteriye bağlayabilirsin.') + '</div>') +
+      : (p.ph ? '<div class="kv"><span>Telefon</span><b><a style="color:inherit" href="tel:' + esc(p.ph.replace(/[^\d+]/g, '')) + '">' + esc(p.ph) + '</a></b></div>' : '') +
+        '<div class="muted">' + (p.st ? PST[p.st] : p.ph || p.name ? 'Müşteri listesinde yok · Görev Matrisi’ne yeni müşteri olarak geçer.' : '❓ Sahibi bilinmiyor. “Düzenle”den müşteriye bağlayabilirsin.') + '</div>') +
     (yerTxt(p) ? '<div class="kv"><span>Yer</span><b>' + esc(yerTxt(p)) + '</b></div>' : '') + (p.lead && p.st ? '<div class="kv"><span>Durum</span><b>' + PST[p.st] + '</b></div>' : '') +
     (p.cnt ? '<div class="kv"><span>Kümes sayısı</span><b>' + esc(p.cnt) + '</b></div>' : '') +
     (p.note ? '<div class="field" style="white-space:pre-wrap">' + esc(p.note) + '</div>' : '') +
@@ -694,7 +724,7 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeout(() => { if (!S.cust.length && !S.pins.length && !$('sheet').classList.contains('on')) help(); }, 600);
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
-const APP_VER = '202611222108';
+const APP_VER = '202611231603';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
