@@ -112,8 +112,11 @@ body.kare .kbar{display:flex}body.kare .bar,body.kare .send,body.kare #tog,body.
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611231820"></script>
+<script src="gshim.js?v=202611231823"></script>
 <script>
+/* Hata olursa ekranın üstünde kırmızı yazı göster (beyaz ekranda ne olduğunu görebilelim) */
+(function () { const show = m => { try { let d = document.getElementById('errbox'); if (!d) { d = document.createElement('div'); d.id = 'errbox'; d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99999;background:#b00020;color:#fff;font:14px/1.4 system-ui;padding:10px 12px;border-radius:10px;white-space:pre-wrap;max-height:40vh;overflow:auto'; d.onclick = () => d.remove(); (document.body || document.documentElement).appendChild(d); } d.textContent = 'HATA (fotoğrafını Claude\'a at): ' + m + '\nsürüm ' + (window.APP_VER_TXT || '?'); } catch (e) {} };
+  addEventListener('error', e => show((e.message || 'bilinmeyen') + ' · satır ' + (e.lineno || '?'))); addEventListener('unhandledrejection', e => { const r = String(e.reason && (e.reason.message || e.reason)); if (!/fetch|network|abort|load/i.test(r)) show('söz: ' + r.slice(0, 200)); }); })();
 function APP() {
 const KEY = 'kumes-harita-v1';
 const $ = id => document.getElementById(id);
@@ -891,9 +894,10 @@ if (S.chg) setTimeout(() => toast('Geçen sefer aktarılmamış ' + S.chg + ' de
 if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeout(() => { if (!S.cust.length && !S.pins.length && !$('sheet').classList.contains('on')) help(); }, 600);
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
-const APP_VER = '202611231820';
-function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
-checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
+window.APP_VER_TXT = document.currentScript ? '' : '';
+const APP_VER = '202611231823';
+function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { let n = 0; try { n = +(sessionStorage.getItem('kh-up-' + t) || 0); sessionStorage.setItem('kh-up-' + t, n + 1); } catch (e) {} if (n >= 2) return; const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
+window.APP_VER_TXT = APP_VER; checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
 const GKEY_DEFAULT = 'AIzaSyCE3zuULF8IlW7TOx-aB9wNoN5xwCLyKQE';
 (function boot() {
