@@ -95,6 +95,46 @@ body.kare .kbtns{gap:4px}body.kare .kbtns button{padding:5px 9px;font-size:13px}
 </style>
 </head>
 <body>
+<!-- Şifre kilidi: bu cihazda haritayı açmak için 4 haneli şifre -->
+<div id="lock" style="position:fixed;inset:0;z-index:100000;background:#0b0f14;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-family:system-ui;padding:20px;text-align:center">
+<div style="font-size:42px">🔒</div><div id="lkT" style="font:700 20px system-ui">Kümes Haritası</div><div id="lkS" style="opacity:.75;font-size:14px;max-width:320px"></div>
+<div id="lkD" style="display:flex;gap:12px;margin:6px 0"></div>
+<div id="lkP" style="display:grid;grid-template-columns:repeat(3,72px);gap:10px"></div>
+<button id="lkF" style="margin-top:8px;background:none;border:0;color:#8ab4ff;font-size:14px;text-decoration:underline">Şifremi unuttum</button>
+</div>
+<script>
+(function () {
+  const K = 'kh-pin', L = document.getElementById('lock');
+  const H = async t => { try { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('kumes|' + t)); return Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2, '0')).join(''); } catch (e) { let h = 0; for (const c of 'kumes|' + t) h = (h * 31 + c.charCodeAt(0)) | 0; return 'x' + h; } };
+  let pin = '', first = null, setting = false;
+  const T = (t, s) => { document.getElementById('lkT').textContent = t; document.getElementById('lkS').textContent = s || ''; };
+  const dots = () => { document.getElementById('lkD').innerHTML = [0, 1, 2, 3].map(i => '<span style="width:16px;height:16px;border-radius:50%;border:2px solid #fff;background:' + (i < pin.length ? '#fff' : 'transparent') + '"></span>').join(''); };
+  const open = () => { try { sessionStorage.setItem('kh-ok', '1'); } catch (e) {} L.style.display = 'none'; };
+  const show = () => { pin = ''; first = null; setting = !localStorage.getItem(K); L.style.display = 'flex'; setting ? T('Şifre belirle', 'Bu cihazda haritayı açmak için 4 haneli bir şifre seç. Her açılışta sorulur.') : T('Kümes Haritası', 'Şifreni gir'); dots(); };
+  async function done() {
+    if (setting) {
+      if (!first) { first = pin; pin = ''; T('Şifreyi tekrar gir', 'Aynı 4 rakamı bir daha gir'); dots(); return; }
+      if (first !== pin) { first = null; pin = ''; T('Şifreler aynı değil', 'Baştan 4 haneli bir şifre seç'); dots(); return; }
+      localStorage.setItem(K, await H(pin)); open(); return;
+    }
+    if (await H(pin) === localStorage.getItem(K)) { open(); return; }
+    pin = ''; T('Yanlış şifre', 'Tekrar dene'); dots(); if (navigator.vibrate) navigator.vibrate(200);
+  }
+  const key = d => { if (d === '⌫') { pin = pin.slice(0, -1); dots(); return; } if (pin.length >= 4) return; pin += d; dots(); if (pin.length === 4) setTimeout(done, 120); };
+  document.getElementById('lkP').innerHTML = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'].map(d => d ? '<button data-k="' + d + '" style="height:60px;border-radius:30px;border:0;background:#1f2937;color:#fff;font:600 24px system-ui">' + d + '</button>' : '<span></span>').join('');
+  document.getElementById('lkP').onclick = e => { const b = e.target.closest('[data-k]'); if (b) key(b.dataset.k); };
+  addEventListener('keydown', e => { if (L.style.display === 'none') return; if (/^\d$/.test(e.key)) key(e.key); else if (e.key === 'Backspace') key('⌫'); });
+  document.getElementById('lkF').onclick = () => {
+    if (!confirm('Şifreyi sıfırlamak için bu cihazdaki harita bilgileri silinecek (kümesler, yeşil alanlar, müşteri listesi). Sonra haritayı Görev Matrisi’nden açınca hepsi geri gelir; Görev Matrisi’ne gönderilmemiş son değişiklikler kaybolur. Devam edilsin mi?')) return;
+    try { Object.keys(localStorage).filter(k => /^kumes|^kh-/.test(k)).forEach(k => localStorage.removeItem(k)); sessionStorage.clear(); } catch (e) {}
+    location.replace(location.pathname);
+  };
+  let hid = 0;
+  document.addEventListener('visibilitychange', () => { if (document.hidden) hid = Date.now(); else if (hid && Date.now() - hid > 30 * 60 * 1000) show(); });
+  let ok = false; try { ok = sessionStorage.getItem('kh-ok') === '1' && !!localStorage.getItem(K); } catch (e) {}
+  if (ok) L.style.display = 'none'; else show();
+})();
+</script>
 <div id="map"></div>
 <div class="top">
   <label class="search"><span>🔎</span><input id="q" type="search" placeholder="Müşteri ya da köy ara" autocomplete="off"></label>
@@ -121,7 +161,7 @@ body.kare .kbtns{gap:4px}body.kare .kbtns button{padding:5px 9px;font-size:13px}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="gshim.js?v=202611232146"></script>
+<script src="gshim.js?v=202611240841"></script>
 <script>
 /* Hata olursa ekranın üstünde kırmızı yazı göster (beyaz ekranda ne olduğunu görebilelim) */
 (function () { const show = m => { try { let d = document.getElementById('errbox'); if (!d) { d = document.createElement('div'); d.id = 'errbox'; d.style.cssText = 'position:fixed;left:8px;right:8px;top:8px;z-index:99999;background:#b00020;color:#fff;font:14px/1.4 system-ui;padding:10px 12px;border-radius:10px;white-space:pre-wrap;max-height:40vh;overflow:auto'; d.onclick = () => d.remove(); (document.body || document.documentElement).appendChild(d); } d.textContent = 'HATA (fotoğrafını Claude\'a at): ' + m + '\nsürüm ' + (window.APP_VER_TXT || '?'); } catch (e) {} };
@@ -1078,7 +1118,7 @@ if (!S.cust.length && !S.pins.length && !/gz=|rt=/.test(location.href)) setTimeo
 }
 /* Güncelleme: sunucudaki sürüm bu sayfadan yeniyse sayfayı yeni sürümle yeniden aç (ana ekran simgesi eski sürümde takılmasın) */
 window.APP_VER_TXT = document.currentScript ? '' : '';
-const APP_VER = '202611232146';
+const APP_VER = '202611240841';
 function checkUpdate() { fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(t => { t = (t || '').trim(); if (t && t > APP_VER) { let n = 0; try { n = +(sessionStorage.getItem('kh-up-' + t) || 0); sessionStorage.setItem('kh-up-' + t, n + 1); } catch (e) {} if (n >= 2) return; const u = new URL(location.href); u.searchParams.set('v', t); location.replace(u.toString()); } }).catch(() => {}); }
 window.APP_VER_TXT = APP_VER; checkUpdate(); document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 /* Açılış: Google anahtarı varsa Google Haritalar, yoksa eski (Esri) harita */
